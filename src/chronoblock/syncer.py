@@ -27,6 +27,7 @@ from chronoblock.db import (
     last_block,
     observed_block_time_ms,
 )
+from chronoblock.errors import RpcRateLimitError, RpcResponseError
 from chronoblock.log import log
 from chronoblock.models import Chain
 from chronoblock.rpc import fetch_block_timestamps, get_latest_block_number
@@ -110,6 +111,13 @@ async def _sync_loop(chain: Chain) -> None:
 
         except asyncio.CancelledError:
             return
+        except RpcRateLimitError as err:
+            cached_latest = None
+            state.last_error = str(err)
+            state.last_error_at = time.time()
+            sleep = err.retry_after if err.retry_after is not None else MAX_ERROR_SLEEP
+            log("warn", str(err), chain=chain.name, retry_after=sleep)
+            await asyncio.sleep(sleep)
         except Exception as err:
             cached_latest = None
             state.last_error = str(err)
@@ -143,7 +151,7 @@ async def _sync_once(chain: Chain, cached_latest: int | None) -> tuple[bool, int
         state.syncs_performed += 1
         state.blocks_ingested += len(blocks)
     else:
-        raise RuntimeError(f"got 0 blocks for range {from_block}→{to_block}")
+        raise RpcResponseError(chain.name, f"got 0 blocks for range {from_block}→{to_block}")
 
     return to_block < latest, latest
 

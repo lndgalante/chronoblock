@@ -12,6 +12,13 @@ from typing import Any
 
 import httpx
 
+from chronoblock.errors import (
+    RpcError,
+    RpcRateLimitError,
+    RpcResponseError,
+    RpcServerError,
+    RpcTransportError,
+)
 from chronoblock.log import log
 from chronoblock.models import Block, Chain
 
@@ -42,8 +49,15 @@ async def close_client() -> None:
 
 async def get_latest_block_number(chain: Chain) -> int:
     result = await _rpc(chain, "eth_blockNumber", [])
-    n = int(result, 16)
-    return n
+    if not isinstance(result, str):
+        raise RpcResponseError(chain.name, f"expected hex string from eth_blockNumber, got {type(result).__name__}")
+    try:
+        return int(result, 16)
+    except ValueError as err:
+        raise RpcResponseError(chain.name, f"invalid hex in eth_blockNumber: {result!r}") from err
+
+
+# ── Internal ─────────────────────────────────────────────────────────
 
 
 async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -> list[Block]:
@@ -91,9 +105,6 @@ async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -
     return out
 
 
-# ── Internal ─────────────────────────────────────────────────────────
-
-
 async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Block]:
     payload = [
         {
@@ -116,24 +127,32 @@ async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Blo
             )
             continue
         result = r.get("result")
-        if not result:
+        if result is None:
             continue
-        num = int(result["number"], 16)
-        ts = int(result["timestamp"], 16)
+        try:
+            num = int(result["number"], 16)
+            ts = int(result["timestamp"], 16)
+        except (KeyError, TypeError, ValueError) as err:
+            log("warn", "malformed block in RPC response", chain=chain.name, error=str(err), block_data=str(result)[:200])
+            continue
         blocks.append(Block(number=num, timestamp=ts))
 
     return blocks
 
 
 def _is_retryable(err: Exception) -> bool:
-    msg = str(err).lower()
-    if isinstance(err, httpx.TimeoutException):
-        return True
-    if isinstance(err, (httpx.ConnectError, httpx.ReadError, httpx.WriteError)):
-        return True
-    if "rpc 429" in msg or "rpc 5" in msg:
-        return True
-    return any(s in msg for s in ("econnr", "etimedout", "socket"))
+    return isinstance(
+        err,
+        (
+            RpcTransportError,
+            RpcRateLimitError,
+            RpcServerError,
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            httpx.ReadError,
+            httpx.WriteError,
+        ),
+    )
 
 
 async def _rpc(chain: Chain, method: str, params: list[Any]) -> Any:
@@ -143,7 +162,7 @@ async def _rpc(chain: Chain, method: str, params: list[Any]) -> Any:
 async def _rpc_batch(chain: Chain, payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result = await _send(chain, payload, is_batch=True)
     if not isinstance(result, list):
-        raise RuntimeError(f"{chain.name}: expected array from batch RPC")
+        raise RpcResponseError(chain.name, "expected array from batch RPC")
     if len(result) != len(payload):
         log("warn", f"batch response length mismatch: expected {len(payload)}, got {len(result)}", chain=chain.name)
     return result
@@ -156,23 +175,32 @@ async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *,
 
     for attempt in range(MAX_RETRIES + 1):
         try:
-            response = await client.post(
-                chain.rpc,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
+            try:
+                response = await client.post(
+                    chain.rpc,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+            except httpx.TimeoutException as err:
+                raise RpcTransportError(chain.name, f"timeout: {err}") from err
+            except (httpx.ConnectError, httpx.ReadError, httpx.WriteError) as err:
+                raise RpcTransportError(chain.name, str(err)) from err
 
-            if response.status_code == 429 or response.status_code >= 500:
-                raise RuntimeError(f"{chain.name}: RPC {response.status_code}")
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                raise RpcRateLimitError(chain.name, int(retry_after) if retry_after and retry_after.isdigit() else None)
+            if response.status_code >= 500:
+                raise RpcServerError(chain.name, response.status_code)
             if not response.is_success:
-                raise RuntimeError(f"{chain.name}: RPC {response.status_code}: {response.text}")
+                raise RpcResponseError(chain.name, f"HTTP {response.status_code}: {response.text[:200]}")
 
             data = response.json()
 
             if is_batch:
                 return data
             if data.get("error"):
-                raise RuntimeError(f"{chain.name}: RPC error: {data['error'].get('message', data['error'])}")
+                err_obj = data["error"]
+                raise RpcResponseError(chain.name, f"RPC error: {err_obj.get('message', err_obj)}")
             return data["result"]
 
         except asyncio.CancelledError:
@@ -183,4 +211,4 @@ async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *,
                 raise
             await asyncio.sleep(min(1.0 * 2**attempt, 30.0))
 
-    raise last_err or RuntimeError("unreachable")
+    raise last_err or RpcError(chain.name, "unreachable")

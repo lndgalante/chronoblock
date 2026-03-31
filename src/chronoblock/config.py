@@ -12,6 +12,7 @@ from typing import TypedDict
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
+from chronoblock.errors import ConfigError
 from chronoblock.models import Chain
 
 __all__ = ["Settings", "settings", "CHAINS", "CHAIN_BY_NAME", "CHAIN_BY_ID"]
@@ -133,10 +134,7 @@ def _validate(settings: Settings, chains: list[Chain]) -> None:
         errors.append("no chains enabled — set at least one RPC URL (e.g. ETH_RPC_URL)")
 
     if errors:
-        print("fatal: config validation failed", file=sys.stderr)
-        for e in errors:
-            print(f"  - {e}", file=sys.stderr)
-        sys.exit(1)
+        raise ConfigError(errors)
 
     skipped = [candidate["name"] for candidate in _CHAIN_CANDIDATES if not getattr(settings, candidate["field"])]
     if skipped:
@@ -147,7 +145,13 @@ def _validate(settings: Settings, chains: list[Chain]) -> None:
 
 settings = Settings()
 CHAINS = _build_chains(settings)
-_validate(settings, CHAINS)
+try:
+    _validate(settings, CHAINS)
+except ConfigError as err:
+    print("fatal: config validation failed", file=sys.stderr)
+    for e in err.errors:
+        print(f"  - {e}", file=sys.stderr)
+    sys.exit(1)
 
 CHAIN_BY_NAME: dict[str, Chain] = {c.name: c for c in CHAINS}
 CHAIN_BY_ID: dict[int, Chain] = {c.id: c for c in CHAINS}

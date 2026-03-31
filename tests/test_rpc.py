@@ -9,6 +9,7 @@ import httpx
 import pytest
 import respx
 
+from chronoblock.errors import RpcRateLimitError, RpcResponseError, RpcServerError, RpcTransportError
 from chronoblock.models import Block, Chain
 from chronoblock.rpc import _is_retryable, close_client, fetch_block_timestamps, get_latest_block_number
 
@@ -117,41 +118,21 @@ class TestIsRetryable:
             httpx.ConnectError("connection refused"),
             httpx.ReadError("read error"),
             httpx.WriteError("write error"),
+            RpcTransportError("eth", "timeout"),
+            RpcRateLimitError("eth", retry_after=30),
+            RpcServerError("eth", 502),
         ],
     )
-    def test_transport_errors_are_retryable(self, exc):
+    def test_retryable_errors(self, exc):
         assert _is_retryable(exc) is True
-
-    @pytest.mark.parametrize(
-        "message",
-        [
-            "RPC 429: rate limited",
-            "RPC 500: internal server error",
-            "RPC 502: bad gateway",
-            "RPC 503: service unavailable",
-        ],
-    )
-    def test_retryable_status_codes_in_message(self, message):
-        assert _is_retryable(RuntimeError(message)) is True
-
-    @pytest.mark.parametrize(
-        "message",
-        [
-            "ECONNRESET",
-            "ETIMEDOUT",
-            "socket hang up",
-        ],
-    )
-    def test_network_error_keywords(self, message):
-        assert _is_retryable(RuntimeError(message)) is True
 
     @pytest.mark.parametrize(
         "exc",
         [
             ValueError("bad value"),
-            RuntimeError("RPC 400: bad request"),
-            RuntimeError("RPC 401: unauthorized"),
             TypeError("wrong type"),
+            RpcResponseError("eth", "bad request"),
+            RuntimeError("unexpected"),
         ],
     )
     def test_non_retryable_errors(self, exc):

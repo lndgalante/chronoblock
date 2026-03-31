@@ -14,10 +14,10 @@ from __future__ import annotations
 import contextlib
 import os
 import sqlite3
-import sys
 import time
 
 from chronoblock.config import settings
+from chronoblock.errors import DataDirError
 from chronoblock.log import log
 from chronoblock.models import Block, Chain
 
@@ -50,8 +50,7 @@ def _ensure_data_dir() -> None:
             f.write("")
         os.remove(test_path)
     except OSError as err:
-        print(f'fatal: data directory "{settings.data_dir}" is not writable: {err}', file=sys.stderr)
-        sys.exit(1)
+        raise DataDirError(f'data directory "{settings.data_dir}" is not writable: {err}') from err
     _data_dir_verified = True
 
 
@@ -191,12 +190,11 @@ def insert_blocks(chain: Chain, blocks: list[Block]) -> None:
 
 def checkpoint_all() -> None:
     for chain_id, store in _stores.items():
-        try:
-            store.connection.execute("PRAGMA optimize")
-            store.connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
-            store.connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        except sqlite3.Error as err:
-            log("warn", "checkpoint failed", chain_id=chain_id, error=str(err))
+        for pragma in ("PRAGMA optimize", "PRAGMA wal_checkpoint(PASSIVE)", "PRAGMA wal_checkpoint(TRUNCATE)"):
+            try:
+                store.connection.execute(pragma)
+            except sqlite3.Error as err:
+                log("warn", "checkpoint pragma failed", chain_id=chain_id, pragma=pragma, error=str(err))
 
 
 def is_healthy(chain: Chain) -> bool:
@@ -206,7 +204,8 @@ def is_healthy(chain: Chain) -> bool:
             return False
         store.connection.execute("SELECT COUNT(*) FROM blocks").fetchone()
         return True
-    except Exception:
+    except Exception as err:
+        log("warn", "health check failed", chain=chain.name, error=str(err))
         return False
 
 
