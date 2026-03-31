@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from chronoblock import db
-from chronoblock.config import Block, Chain
+from chronoblock.models import Block, Chain
 
 CHAIN = Chain(
     id=99999,

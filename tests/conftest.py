@@ -14,12 +14,12 @@ os.environ.setdefault("DATA_DIR", "/tmp/chronoblock-test")
 import pytest
 from fastapi.testclient import TestClient
 
-from chronoblock.api import (
+from chronoblock.api import create_app
+from chronoblock.dependencies import (
     BlockCountFn,
     GetSyncStateFn,
     GetTimestampsFn,
     IsHealthyFn,
-    create_app,
     dep_block_count,
     dep_get_sync_state,
     dep_get_timestamps,

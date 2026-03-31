@@ -9,7 +9,7 @@ import httpx
 import pytest
 import respx
 
-from chronoblock.config import Block, Chain
+from chronoblock.models import Block, Chain
 from chronoblock.rpc import _is_retryable, close_client, fetch_block_timestamps, get_latest_block_number
 
 CHAIN = Chain(

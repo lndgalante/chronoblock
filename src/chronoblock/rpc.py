@@ -12,8 +12,10 @@ from typing import Any
 
 import httpx
 
-from chronoblock.config import Block, Chain
 from chronoblock.log import log
+from chronoblock.models import Block, Chain
+
+__all__ = ["get_latest_block_number", "fetch_block_timestamps", "close_client"]
 
 MAX_RETRIES = 5
 TIMEOUT = httpx.Timeout(30.0)

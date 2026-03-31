@@ -7,29 +7,14 @@ so deploy pipelines fail fast.
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
-from typing import NamedTuple, TypedDict
+from typing import TypedDict
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
-# ── Types ────────────────────────────────────────────────────────────
+from chronoblock.models import Chain
 
-
-@dataclass(frozen=True, slots=True)
-class Chain:
-    id: int
-    name: str
-    rpc: str
-    rpc_batch_size: int
-    rpc_concurrency: int
-    finality_blocks: int
-
-
-class Block(NamedTuple):
-    number: int
-    timestamp: int
-
+__all__ = ["Settings", "settings", "CHAINS", "CHAIN_BY_NAME", "CHAIN_BY_ID"]
 
 # ── Settings ─────────────────────────────────────────────────────────
 

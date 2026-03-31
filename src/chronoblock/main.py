@@ -3,6 +3,8 @@
 from chronoblock.api import create_app
 from chronoblock.config import settings
 
+__all__ = ["app"]
+
 app = create_app()
 
 if __name__ == "__main__":

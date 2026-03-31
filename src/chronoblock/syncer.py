@@ -20,7 +20,7 @@ import random
 import time
 from dataclasses import dataclass, field
 
-from chronoblock.config import CHAINS, Chain, settings
+from chronoblock.config import CHAINS, settings
 from chronoblock.db import (
     checkpoint_all,
     insert_blocks,
@@ -28,7 +28,10 @@ from chronoblock.db import (
     observed_block_time_ms,
 )
 from chronoblock.log import log
+from chronoblock.models import Chain
 from chronoblock.rpc import fetch_block_timestamps, get_latest_block_number
+
+__all__ = ["SyncState", "get_sync_state", "start_all", "stop_all"]
 
 CHECKPOINT_INTERVAL = 60.0
 MAX_ERROR_SLEEP = 30.0

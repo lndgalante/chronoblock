@@ -8,11 +8,6 @@ dist/
 uv.lock
 .coverage
 
-# TypeScript (archived)
-tsconfig.tsbuildinfo
-node_modules/
-bun.lock
-
 # IDE
 .DS_Store
 .idea/

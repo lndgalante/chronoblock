@@ -1,64 +1,43 @@
-"""
-FastAPI application — routes, middleware, and health checks.
-"""
+"""FastAPI application — routes and health checks."""
 
 from __future__ import annotations
 
 import re
-import time
-import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from chronoblock.config import (
-    CHAIN_BY_ID,
-    CHAIN_BY_NAME,
-    CHAINS,
-    Chain,
-    settings,
+from chronoblock.config import CHAIN_BY_ID, CHAIN_BY_NAME, CHAINS, settings
+from chronoblock.db import close_all
+from chronoblock.dependencies import (
+    BlockCountFn,
+    GetSyncStateFn,
+    GetTimestampsFn,
+    IsHealthyFn,
+    NowFn,
+    dep_block_count,
+    dep_get_sync_state,
+    dep_get_timestamps,
+    dep_is_healthy,
+    dep_now,
 )
-from chronoblock.db import block_count, close_all, get_timestamps, is_healthy
 from chronoblock.log import log
+from chronoblock.middleware import (
+    RequestIdMiddleware,
+    RequestLoggingMiddleware,
+    SecureHeadersMiddleware,
+)
+from chronoblock.models import Chain
 from chronoblock.rpc import close_client
-from chronoblock.syncer import SyncState, get_sync_state, start_all, stop_all
+from chronoblock.syncer import SyncState, start_all, stop_all
 
-# Type aliases for dependency-injected callables.
-GetTimestampsFn = Callable[[Chain, list[int]], list[int | None]]
-BlockCountFn = Callable[[Chain], int]
-IsHealthyFn = Callable[[Chain], bool]
-GetSyncStateFn = Callable[[Chain], SyncState]
-NowFn = Callable[[], float]
+__all__ = ["create_app", "INITIAL_SYNC_GRACE_SECS"]
 
 INITIAL_SYNC_GRACE_SECS = 5 * 60
 BLOCK_PARAM_RE = re.compile(r"^\d+$")
-
-
-# ── Dependencies (for DI / test overrides) ───────────────────────────
-
-
-def dep_get_timestamps() -> GetTimestampsFn:
-    return get_timestamps
-
-
-def dep_block_count() -> BlockCountFn:
-    return block_count
-
-
-def dep_is_healthy() -> IsHealthyFn:
-    return is_healthy
-
-
-def dep_get_sync_state() -> GetSyncStateFn:
-    return get_sync_state
-
-
-def dep_now() -> NowFn:
-    return time.time
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -98,46 +77,6 @@ def _should_degrade_chain(sync: SyncState, now: float) -> str | None:
     return None
 
 
-# ── Middleware ────────────────────────────────────────────────────────
-
-
-class RequestIdMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
-        request.state.request_id = request_id
-        response = await call_next(request)
-        response.headers["X-Request-Id"] = request_id
-        return response
-
-
-class SecureHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        response.headers["X-XSS-Protection"] = "0"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Content-Security-Policy"] = "default-src 'none'"
-        return response
-
-
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        start = time.monotonic()
-        response = await call_next(request)
-        if request.url.path != "/health":
-            log(
-                "info",
-                f"{request.method} {request.url.path} {response.status_code}",
-                method=request.method,
-                path=request.url.path,
-                status=response.status_code,
-                duration_ms=round((time.monotonic() - start) * 1000),
-                request_id=getattr(request.state, "request_id", None),
-            )
-        return response
-
-
 # ── Lifespan ─────────────────────────────────────────────────────────
 
 
@@ -157,7 +96,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(
         title="chronoblock",
-        description="Fast block-number → timestamp API for EVM chains",
+        description="Fast block-number \u2192 timestamp API for EVM chains",
         lifespan=lifespan,
         redirect_slashes=True,
     )

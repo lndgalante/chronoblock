@@ -11,6 +11,8 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+__all__ = ["log"]
+
 
 def log(level: str, msg: str, **extra: Any) -> None:
     entry = json.dumps(

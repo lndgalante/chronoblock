@@ -17,24 +17,42 @@ import sqlite3
 import sys
 import time
 
-from chronoblock.config import Block, Chain, settings
+from chronoblock.config import settings
 from chronoblock.log import log
+from chronoblock.models import Block, Chain
 
-try:
-    os.makedirs(settings.data_dir, exist_ok=True)
-    # Verify writable
-    test_path = os.path.join(settings.data_dir, ".write_test")
-    with open(test_path, "w") as f:
-        f.write("")
-    os.remove(test_path)
-except OSError as err:
-    print(f'fatal: data directory "{settings.data_dir}" is not writable: {err}', file=sys.stderr)
-    sys.exit(1)
-
+__all__ = [
+    "get_timestamps",
+    "last_block",
+    "block_count",
+    "observed_block_time_ms",
+    "insert_blocks",
+    "checkpoint_all",
+    "is_healthy",
+    "close_all",
+]
 
 DEFAULT_BLOCK_TIME_MS = 1_000
 BLOCK_TIME_SAMPLE_SIZE = 50
 COUNT_CACHE_TTL = 5.0  # seconds
+
+_data_dir_verified = False
+
+
+def _ensure_data_dir() -> None:
+    global _data_dir_verified
+    if _data_dir_verified:
+        return
+    try:
+        os.makedirs(settings.data_dir, exist_ok=True)
+        test_path = os.path.join(settings.data_dir, ".write_test")
+        with open(test_path, "w") as f:
+            f.write("")
+        os.remove(test_path)
+    except OSError as err:
+        print(f'fatal: data directory "{settings.data_dir}" is not writable: {err}', file=sys.stderr)
+        sys.exit(1)
+    _data_dir_verified = True
 
 
 class _ChainDB:
@@ -61,6 +79,7 @@ _stores: dict[int, _ChainDB] = {}
 
 
 def _open(chain: Chain) -> _ChainDB:
+    _ensure_data_dir()
     existing = _stores.get(chain.id)
     if existing is not None:
         return existing
@@ -195,9 +214,11 @@ def is_healthy(chain: Chain) -> bool:
 
 
 def close_all() -> None:
+    global _data_dir_verified
     for store in _stores.values():
         with contextlib.suppress(Exception):
             store.connection.execute("PRAGMA optimize")
         with contextlib.suppress(Exception):
             store.connection.close()
     _stores.clear()
+    _data_dir_verified = False
