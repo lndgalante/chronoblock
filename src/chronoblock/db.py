@@ -11,12 +11,13 @@ Performance notes:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sqlite3
 import sys
 import time
 
-from chronoblock.config import Chain, Block, settings
+from chronoblock.config import Block, Chain, settings
 from chronoblock.log import log
 
 try:
@@ -95,9 +96,7 @@ def get_timestamps(chain: Chain, block_numbers: list[int]) -> list[int | None]:
     if len(block_numbers) <= 20:
         results: list[int | None] = []
         for bn in block_numbers:
-            row = store.connection.execute(
-                "SELECT timestamp FROM blocks WHERE block_number = ?", (bn,)
-            ).fetchone()
+            row = store.connection.execute("SELECT timestamp FROM blocks WHERE block_number = ?", (bn,)).fetchone()
             results.append(row[0] if row else None)
         return results
 
@@ -152,7 +151,8 @@ def observed_block_time_ms(chain: Chain) -> float:
         log("warn", "block time sample has non-positive span, using default", chain=chain.name, span_secs=span_secs)
         return DEFAULT_BLOCK_TIME_MS
 
-    return max(200.0, min((span_secs / intervals) * 1000, 30_000.0))
+    block_time: float = (span_secs / intervals) * 1000
+    return max(200.0, min(block_time, 30_000.0))
 
 
 # ── Write ────────────────────────────────────────────────────────────
@@ -196,12 +196,8 @@ def is_healthy(chain: Chain) -> bool:
 
 def close_all() -> None:
     for store in _stores.values():
-        try:
+        with contextlib.suppress(Exception):
             store.connection.execute("PRAGMA optimize")
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             store.connection.close()
-        except Exception:
-            pass
     _stores.clear()

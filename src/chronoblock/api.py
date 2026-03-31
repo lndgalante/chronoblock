@@ -9,16 +9,16 @@ import time
 import uuid
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from chronoblock.config import (
-    CHAINS,
     CHAIN_BY_ID,
     CHAIN_BY_NAME,
+    CHAINS,
     Chain,
     settings,
 )
@@ -102,7 +102,7 @@ def _should_degrade_chain(sync: SyncState, now: float) -> str | None:
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         request.state.request_id = request_id
         response = await call_next(request)
@@ -111,7 +111,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 
 class SecureHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
@@ -122,7 +122,7 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         start = time.monotonic()
         response = await call_next(request)
         if request.url.path != "/health":
@@ -229,10 +229,12 @@ def create_app() -> FastAPI:
 
         for i, b in enumerate(blocks):
             if not isinstance(b, int) or isinstance(b, bool) or b < 0 or b > 2**53 - 1:
-                return _error_response(400, "invalid_block_number", f"invalid block number at index {i}: {b}", request_id)
+                return _error_response(
+                    400, "invalid_block_number", f"invalid block number at index {i}: {b}", request_id
+                )
 
         timestamps = fn_get_timestamps(chain, blocks)
-        results = {str(bn): ts for bn, ts in zip(blocks, timestamps)}
+        results = {str(bn): ts for bn, ts in zip(blocks, timestamps, strict=True)}
 
         return JSONResponse({"chain_id": chain.id, "results": results})
 
@@ -262,10 +264,7 @@ def create_app() -> FastAPI:
             return _error_response(404, "not_found", "block not found")
 
         sync = fn_get_sync_state(chain)
-        finalized = (
-            sync.latest_chain_block is not None
-            and bn <= sync.latest_chain_block - chain.finality_blocks
-        )
+        finalized = sync.latest_chain_block is not None and bn <= sync.latest_chain_block - chain.finality_blocks
         cache = "public, max-age=31536000, immutable" if finalized else "public, max-age=60"
 
         return JSONResponse(
@@ -288,23 +287,23 @@ def create_app() -> FastAPI:
                 if sync.latest_chain_block is not None and sync.last_synced_block is not None
                 else None
             )
-            chains.append({
-                "name": ch.name,
-                "chain_id": ch.id,
-                "last_synced_block": sync.last_synced_block,
-                "latest_chain_block": sync.latest_chain_block,
-                "lag_blocks": lag_blocks,
-                "observed_block_time_ms": sync.observed_block_time_ms,
-                "total_stored": fn_block_count(ch),
-                "syncs_performed": sync.syncs_performed,
-                "blocks_ingested": sync.blocks_ingested,
-                "last_error": sync.last_error,
-                "last_error_at": (
-                    datetime.fromtimestamp(sync.last_error_at, tz=timezone.utc).isoformat()
-                    if sync.last_error_at
-                    else None
-                ),
-            })
+            chains.append(
+                {
+                    "name": ch.name,
+                    "chain_id": ch.id,
+                    "last_synced_block": sync.last_synced_block,
+                    "latest_chain_block": sync.latest_chain_block,
+                    "lag_blocks": lag_blocks,
+                    "observed_block_time_ms": sync.observed_block_time_ms,
+                    "total_stored": fn_block_count(ch),
+                    "syncs_performed": sync.syncs_performed,
+                    "blocks_ingested": sync.blocks_ingested,
+                    "last_error": sync.last_error,
+                    "last_error_at": (
+                        datetime.fromtimestamp(sync.last_error_at, tz=UTC).isoformat() if sync.last_error_at else None
+                    ),
+                }
+            )
 
         return JSONResponse({"chains": chains}, headers={"Cache-Control": "no-store"})
 

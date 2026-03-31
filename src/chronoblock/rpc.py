@@ -8,12 +8,11 @@ never skips blocks.
 from __future__ import annotations
 
 import asyncio
-
 from typing import Any
 
 import httpx
 
-from chronoblock.config import Chain, Block
+from chronoblock.config import Block, Chain
 from chronoblock.log import log
 
 MAX_RETRIES = 5
@@ -110,7 +109,9 @@ async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Blo
     for r in data:
         if r.get("error"):
             err = r["error"]
-            log("warn", f"batch item RPC error: {err.get('message', err.get('code'))}", chain=chain.name, id=r.get("id"))
+            log(
+                "warn", f"batch item RPC error: {err.get('message', err.get('code'))}", chain=chain.name, id=r.get("id")
+            )
             continue
         result = r.get("result")
         if not result:
@@ -130,16 +131,14 @@ def _is_retryable(err: Exception) -> bool:
         return True
     if "rpc 429" in msg or "rpc 5" in msg:
         return True
-    if any(s in msg for s in ("econnr", "etimedout", "socket")):
-        return True
-    return False
+    return any(s in msg for s in ("econnr", "etimedout", "socket"))
 
 
-async def _rpc(chain: Chain, method: str, params: list) -> Any:
+async def _rpc(chain: Chain, method: str, params: list[Any]) -> Any:
     return await _send(chain, {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}, is_batch=False)
 
 
-async def _rpc_batch(chain: Chain, payload: list) -> list:
+async def _rpc_batch(chain: Chain, payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result = await _send(chain, payload, is_batch=True)
     if not isinstance(result, list):
         raise RuntimeError(f"{chain.name}: expected array from batch RPC")
@@ -148,7 +147,7 @@ async def _rpc_batch(chain: Chain, payload: list) -> list:
     return result
 
 
-async def _send(chain: Chain, payload: Any, *, is_batch: bool) -> Any:
+async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *, is_batch: bool) -> Any:
     """Core fetch loop with retry and exponential backoff."""
     client = _get_client()
     last_err: Exception | None = None

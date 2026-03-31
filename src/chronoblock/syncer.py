@@ -22,13 +22,13 @@ from dataclasses import dataclass, field
 
 from chronoblock.config import CHAINS, Chain, settings
 from chronoblock.db import (
-    last_block,
-    insert_blocks,
     checkpoint_all,
+    insert_blocks,
+    last_block,
     observed_block_time_ms,
 )
-from chronoblock.rpc import get_latest_block_number, fetch_block_timestamps
 from chronoblock.log import log
+from chronoblock.rpc import fetch_block_timestamps, get_latest_block_number
 
 CHECKPOINT_INTERVAL = 60.0
 MAX_ERROR_SLEEP = 30.0
@@ -48,7 +48,7 @@ class SyncState:
 
 
 _sync_states: dict[int, SyncState] = {}
-_tasks: list[asyncio.Task] = []
+_tasks: list[asyncio.Task[None]] = []
 
 
 def get_sync_state(chain: Chain) -> SyncState:

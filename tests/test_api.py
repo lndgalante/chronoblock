@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from chronoblock.config import CHAINS, settings
 from chronoblock.api import INITIAL_SYNC_GRACE_SECS
+from chronoblock.config import CHAINS, settings
+from chronoblock.syncer import SyncState
 from tests.conftest import make_state
-
 
 # ── Happy-path tests ─────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ class TestPostTimestamps:
 
 
 class TestGetSingleTimestamp:
-    def _synced_state(self, now, latest=200):
+    def _synced_state(self, now: float, latest: int = 200) -> SyncState:
         return make_state(now, last_synced_block=latest, latest_chain_block=latest)
 
     def test_returns_timestamp(self, create_test_app):

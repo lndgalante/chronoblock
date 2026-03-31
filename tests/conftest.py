@@ -14,19 +14,23 @@ os.environ.setdefault("DATA_DIR", "/tmp/chronoblock-test")
 import pytest
 from fastapi.testclient import TestClient
 
-from chronoblock.syncer import SyncState
 from chronoblock.api import (
+    BlockCountFn,
+    GetSyncStateFn,
+    GetTimestampsFn,
+    IsHealthyFn,
     create_app,
-    dep_get_timestamps,
     dep_block_count,
-    dep_is_healthy,
     dep_get_sync_state,
+    dep_get_timestamps,
+    dep_is_healthy,
     dep_now,
 )
+from chronoblock.syncer import SyncState
 
 
-def make_state(now: float = 1_000_000.0, **overrides) -> SyncState:
-    defaults = {
+def make_state(now: float = 1_000_000.0, **overrides: object) -> SyncState:
+    defaults: dict[str, object] = {
         "started_at": now,
         "last_success_at": None,
         "last_synced_block": None,
@@ -38,7 +42,7 @@ def make_state(now: float = 1_000_000.0, **overrides) -> SyncState:
         "blocks_ingested": 0,
     }
     defaults.update(overrides)
-    return SyncState(**defaults)
+    return SyncState(**defaults)  # type: ignore[arg-type]
 
 
 @pytest.fixture
@@ -47,30 +51,22 @@ def create_test_app():
 
     def _create(
         now: float = 1_000_000.0,
-        get_timestamps_fn=None,
-        block_count_fn=None,
-        is_healthy_fn=None,
-        get_sync_state_fn=None,
-    ):
+        get_timestamps_fn: GetTimestampsFn | None = None,
+        block_count_fn: BlockCountFn | None = None,
+        is_healthy_fn: IsHealthyFn | None = None,
+        get_sync_state_fn: GetSyncStateFn | None = None,
+    ) -> TestClient:
         app = create_app()
 
-        if get_timestamps_fn is None:
-            def get_timestamps_fn(_chain, blocks):
-                return [None] * len(blocks)
-        if block_count_fn is None:
-            def block_count_fn(_chain):
-                return 0
-        if is_healthy_fn is None:
-            def is_healthy_fn(_chain):
-                return True
-        if get_sync_state_fn is None:
-            def get_sync_state_fn(_chain):
-                return make_state(now)
+        ts_fn: GetTimestampsFn = get_timestamps_fn or (lambda _chain, blocks: [None] * len(blocks))
+        count_fn: BlockCountFn = block_count_fn or (lambda _chain: 0)
+        healthy_fn: IsHealthyFn = is_healthy_fn or (lambda _chain: True)
+        sync_fn: GetSyncStateFn = get_sync_state_fn or (lambda _chain: make_state(now))
 
-        app.dependency_overrides[dep_get_timestamps] = lambda: get_timestamps_fn
-        app.dependency_overrides[dep_block_count] = lambda: block_count_fn
-        app.dependency_overrides[dep_is_healthy] = lambda: is_healthy_fn
-        app.dependency_overrides[dep_get_sync_state] = lambda: get_sync_state_fn
+        app.dependency_overrides[dep_get_timestamps] = lambda: ts_fn
+        app.dependency_overrides[dep_block_count] = lambda: count_fn
+        app.dependency_overrides[dep_is_healthy] = lambda: healthy_fn
+        app.dependency_overrides[dep_get_sync_state] = lambda: sync_fn
         app.dependency_overrides[dep_now] = lambda: lambda: now
 
         return TestClient(app, raise_server_exceptions=False)

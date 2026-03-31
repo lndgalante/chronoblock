@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import NamedTuple, TypedDict
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
-
 
 # ── Types ────────────────────────────────────────────────────────────
 
@@ -51,27 +50,67 @@ class Settings(BaseSettings):
 
 # ── Chain candidates ─────────────────────────────────────────────────
 
-_CHAIN_CANDIDATES = [
-    {"id": 1, "name": "ethereum", "field": "eth_rpc_url", "rpc_batch_size": 100, "rpc_concurrency": 5, "finality_blocks": 64},
-    {"id": 534352, "name": "scroll", "field": "scroll_rpc_url", "rpc_batch_size": 100, "rpc_concurrency": 5, "finality_blocks": 300},
-    {"id": 57073, "name": "ink", "field": "ink_rpc_url", "rpc_batch_size": 100, "rpc_concurrency": 5, "finality_blocks": 300},
-    {"id": 998, "name": "hyperevm", "field": "hyperevm_rpc_url", "rpc_batch_size": 100, "rpc_concurrency": 5, "finality_blocks": 300},
+
+class _ChainCandidate(TypedDict):
+    id: int
+    name: str
+    field: str
+    rpc_batch_size: int
+    rpc_concurrency: int
+    finality_blocks: int
+
+
+_CHAIN_CANDIDATES: list[_ChainCandidate] = [
+    {
+        "id": 1,
+        "name": "ethereum",
+        "field": "eth_rpc_url",
+        "rpc_batch_size": 100,
+        "rpc_concurrency": 5,
+        "finality_blocks": 64,
+    },
+    {
+        "id": 534352,
+        "name": "scroll",
+        "field": "scroll_rpc_url",
+        "rpc_batch_size": 100,
+        "rpc_concurrency": 5,
+        "finality_blocks": 300,
+    },
+    {
+        "id": 57073,
+        "name": "ink",
+        "field": "ink_rpc_url",
+        "rpc_batch_size": 100,
+        "rpc_concurrency": 5,
+        "finality_blocks": 300,
+    },
+    {
+        "id": 998,
+        "name": "hyperevm",
+        "field": "hyperevm_rpc_url",
+        "rpc_batch_size": 100,
+        "rpc_concurrency": 5,
+        "finality_blocks": 300,
+    },
 ]
 
 
 def _build_chains(settings: Settings) -> list[Chain]:
     chains: list[Chain] = []
-    for c in _CHAIN_CANDIDATES:
-        rpc_url = getattr(settings, c["field"])
+    for candidate in _CHAIN_CANDIDATES:
+        rpc_url: str | None = getattr(settings, candidate["field"])
         if rpc_url:
-            chains.append(Chain(
-                id=c["id"],
-                name=c["name"],
-                rpc=rpc_url,
-                rpc_batch_size=c["rpc_batch_size"],
-                rpc_concurrency=c["rpc_concurrency"],
-                finality_blocks=c["finality_blocks"],
-            ))
+            chains.append(
+                Chain(
+                    id=candidate["id"],
+                    name=candidate["name"],
+                    rpc=rpc_url,
+                    rpc_batch_size=candidate["rpc_batch_size"],
+                    rpc_concurrency=candidate["rpc_concurrency"],
+                    finality_blocks=candidate["finality_blocks"],
+                )
+            )
     return chains
 
 
@@ -114,7 +153,7 @@ def _validate(settings: Settings, chains: list[Chain]) -> None:
             print(f"  - {e}", file=sys.stderr)
         sys.exit(1)
 
-    skipped = [c["name"] for c in _CHAIN_CANDIDATES if not getattr(settings, c["field"])]
+    skipped = [candidate["name"] for candidate in _CHAIN_CANDIDATES if not getattr(settings, candidate["field"])]
     if skipped:
         print(f"disabled chains (no RPC): {', '.join(skipped)}", file=sys.stderr)
 

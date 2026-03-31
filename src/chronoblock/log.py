@@ -8,16 +8,18 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
 def log(level: str, msg: str, **extra: Any) -> None:
-    entry = json.dumps({
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "level": level,
-        "msg": msg,
-        **extra,
-    })
+    entry = json.dumps(
+        {
+            "ts": datetime.now(UTC).isoformat(),
+            "level": level,
+            "msg": msg,
+            **extra,
+        }
+    )
     stream = sys.stderr if level in ("error", "warn") else sys.stdout
     print(entry, file=stream, flush=True)
