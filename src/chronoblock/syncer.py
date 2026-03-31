@@ -106,7 +106,7 @@ async def _sync_loop(chain: Chain) -> None:
                 cached_latest = latest
             else:
                 cached_latest = None
-                state.observed_block_time_ms = observed_block_time_ms(chain)
+                state.observed_block_time_ms = await asyncio.to_thread(observed_block_time_ms, chain)
                 await asyncio.sleep(state.observed_block_time_ms / 1000)
 
         except asyncio.CancelledError:
@@ -128,7 +128,7 @@ async def _sync_loop(chain: Chain) -> None:
 
 async def _sync_once(chain: Chain, cached_latest: int | None) -> tuple[bool, int]:
     latest = cached_latest if cached_latest is not None else await get_latest_block_number(chain)
-    stored = last_block(chain)
+    stored = await asyncio.to_thread(last_block, chain)
     from_block = stored + 1 if stored is not None else 0
 
     state = _sync_states[chain.id]

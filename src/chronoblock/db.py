@@ -204,7 +204,7 @@ def is_healthy(chain: Chain) -> bool:
             return False
         store.connection.execute("SELECT COUNT(*) FROM blocks").fetchone()
         return True
-    except Exception as err:
+    except (sqlite3.Error, OSError) as err:
         log("warn", "health check failed", chain=chain.name, error=str(err))
         return False
 

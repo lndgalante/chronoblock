@@ -9,12 +9,14 @@ from __future__ import annotations
 import json
 import sys
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 __all__ = ["log"]
 
+LogLevel = Literal["info", "warn", "error"]
 
-def log(level: str, msg: str, **extra: Any) -> None:
+
+def log(level: LogLevel, msg: str, **extra: Any) -> None:
     entry = json.dumps(
         {
             "ts": datetime.now(UTC).isoformat(),
