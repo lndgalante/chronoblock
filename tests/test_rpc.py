@@ -10,7 +10,7 @@ import pytest
 import respx
 
 from chronoblock.config import Chain, Block
-from chronoblock.rpc import fetch_block_timestamps, get_latest_block_number, _get_client, close_client
+from chronoblock.rpc import fetch_block_timestamps, get_latest_block_number, close_client, _is_retryable
 
 
 CHAIN = Chain(
@@ -102,3 +102,40 @@ class TestFetchBlockTimestamps:
 
         with pytest.raises(asyncio.CancelledError):
             await run()
+
+
+class TestIsRetryable:
+    @pytest.mark.parametrize("exc", [
+        httpx.TimeoutException("timeout"),
+        httpx.ConnectError("connection refused"),
+        httpx.ReadError("read error"),
+        httpx.WriteError("write error"),
+    ])
+    def test_transport_errors_are_retryable(self, exc):
+        assert _is_retryable(exc) is True
+
+    @pytest.mark.parametrize("message", [
+        "RPC 429: rate limited",
+        "RPC 500: internal server error",
+        "RPC 502: bad gateway",
+        "RPC 503: service unavailable",
+    ])
+    def test_retryable_status_codes_in_message(self, message):
+        assert _is_retryable(RuntimeError(message)) is True
+
+    @pytest.mark.parametrize("message", [
+        "ECONNRESET",
+        "ETIMEDOUT",
+        "socket hang up",
+    ])
+    def test_network_error_keywords(self, message):
+        assert _is_retryable(RuntimeError(message)) is True
+
+    @pytest.mark.parametrize("exc", [
+        ValueError("bad value"),
+        RuntimeError("RPC 400: bad request"),
+        RuntimeError("RPC 401: unauthorized"),
+        TypeError("wrong type"),
+    ])
+    def test_non_retryable_errors(self, exc):
+        assert _is_retryable(exc) is False

@@ -11,12 +11,9 @@ os.environ.setdefault("INK_RPC_URL", "http://ink.test")
 os.environ.setdefault("HYPEREVM_RPC_URL", "http://hyperevm.test")
 os.environ.setdefault("DATA_DIR", "/tmp/chronoblock-test")
 
-import time
-
 import pytest
 from fastapi.testclient import TestClient
 
-from chronoblock.config import CHAINS, Chain
 from chronoblock.syncer import SyncState
 from chronoblock.api import (
     create_app,
@@ -58,13 +55,17 @@ def create_test_app():
         app = create_app()
 
         if get_timestamps_fn is None:
-            get_timestamps_fn = lambda _chain, blocks: [None] * len(blocks)
+            def get_timestamps_fn(_chain, blocks):
+                return [None] * len(blocks)
         if block_count_fn is None:
-            block_count_fn = lambda _chain: 0
+            def block_count_fn(_chain):
+                return 0
         if is_healthy_fn is None:
-            is_healthy_fn = lambda _chain: True
+            def is_healthy_fn(_chain):
+                return True
         if get_sync_state_fn is None:
-            get_sync_state_fn = lambda _chain: make_state(now)
+            def get_sync_state_fn(_chain):
+                return make_state(now)
 
         app.dependency_overrides[dep_get_timestamps] = lambda: get_timestamps_fn
         app.dependency_overrides[dep_block_count] = lambda: block_count_fn
