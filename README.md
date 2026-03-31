@@ -1,17 +1,31 @@
-# block-timestamps
+# chronoblock
 
-Fast API service that maps EVM block numbers to unix timestamps. Built with Bun, Hono, and SQLite.
+Fast API service that maps EVM block numbers to unix timestamps. Built with Python, FastAPI, and SQLite.
 
 One process — starts the HTTP API and syncs all chains in the background. No cron jobs, no external dependencies, no manual work.
 
 ## Quick start
 
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
 ```bash
-bun install
-bun run start       # API + background sync
-bun run dev         # same, with hot reload
-bun run test        # regression suite
-bun run typecheck   # static type check
+cp .env.template .env       # configure RPC URLs (at least one required)
+uv sync --all-extras         # install dependencies
+uv run python -m chronoblock.main   # API + background sync
+```
+
+Or with uvicorn directly:
+
+```bash
+uv run uvicorn chronoblock.main:app --host 0.0.0.0 --port 3000
+```
+
+### Development
+
+```bash
+uv run uvicorn chronoblock.main:app --reload   # hot reload
+uv run pytest -v                                # test suite
+uv run ruff check src/ tests/                   # lint
 ```
 
 The service will begin syncing all configured chains from block 0 (or resume from the last stored block) and serve the API immediately.
@@ -65,38 +79,41 @@ Returns `200 OK` if all chains are within `HEALTH_MAX_LAG_SECS`. Returns `503` w
 | `DATA_DIR` | `./data` | SQLite directory (one `.db` per chain) |
 | `HEALTH_MAX_LAG_SECS` | `120` | Max lag before `/health` returns 503 |
 | `SYNC_CHUNK_SIZE` | `2000` | Blocks per sync cycle |
-| `ETH_RPC_URL` | `https://eth.llamarpc.com` | Ethereum RPC |
-| `SCROLL_RPC_URL` | `https://rpc.scroll.io` | Scroll RPC |
-| `INK_RPC_URL` | `https://rpc-gel.inkonchain.com` | Ink RPC |
-| `HYPEREVM_RPC_URL` | `https://rpc.hyperliquid.xyz/evm` | HyperEVM RPC |
+| `ETH_RPC_URL` | — | Ethereum RPC (set to enable) |
+| `SCROLL_RPC_URL` | — | Scroll RPC (set to enable) |
+| `INK_RPC_URL` | — | Ink RPC (set to enable) |
+| `HYPEREVM_RPC_URL` | — | HyperEVM RPC (set to enable) |
 
 ## Add a chain
 
-Add an entry to the `CHAINS` array in `config.ts` and restart. The service validates the config at startup and syncs automatically.
+Add an entry to `_CHAIN_CANDIDATES` in `src/chronoblock/config.py`, add the corresponding RPC URL field to the `Settings` class, and restart. The service validates the config at startup and syncs automatically.
 
 ## Architecture
 
 ```
-config.ts  — Chain definitions, env vars, startup validation
-log.ts     — Structured JSON logger (stdout/stderr)
-db.ts      — Per-chain SQLite (WAL, mmap, cached statements)
-rpc.ts     — JSON-RPC client (batching, concurrency, retry)
-syncer.ts  — Background sync workers (one per chain)
-index.ts   — Hono API + lifecycle
+src/chronoblock/
+  config.py  — Chain definitions, env vars, startup validation
+  log.py     — Structured JSON logger (stdout/stderr)
+  db.py      — Per-chain SQLite (WAL, mmap, cached statements)
+  rpc.py     — JSON-RPC client (batching, concurrency, retry)
+  syncer.py  — Background sync workers (one per chain)
+  api.py     — FastAPI app, routes, middleware
+  main.py    — Entry point (uvicorn)
+  schemas.py — Pydantic request/response models
 ```
 
-**Sync loop:** each chain gets an independent async loop that checks `MAX(block_number)` in its SQLite file, fetches the gap from the RPC in concurrent batches, inserts in a single transaction, and either loops immediately (catch-up) or sleeps for one observed block time (steady-state).
+**Sync loop:** each chain gets an independent asyncio task that checks `MAX(block_number)` in its SQLite file, fetches the gap from the RPC in concurrent batches, inserts in a single transaction, and either loops immediately (catch-up) or sleeps for one observed block time (steady-state).
 
 **Block time is self-calibrating.** The service computes the average block interval from the last 50 stored blocks. If a chain changes its block time (e.g. Scroll 3s → 1s), the poll interval adjusts automatically — no config change or restart needed.
 
-**Gap-safety.** `fetchBlockTimestamps` returns only the contiguous prefix starting at `from`. If block N is missing, everything up to N-1 is inserted and the syncer retries from N next cycle. The DB never has holes.
+**Gap-safety.** `fetch_block_timestamps` returns only the contiguous prefix starting at `from_block`. If block N is missing, everything up to N-1 is inserted and the syncer retries from N next cycle. The DB never has holes.
 
 ## Production notes
 
 - **Storage:** ~12 bytes/block. Ethereum mainnet (~22M blocks) = ~260 MB. HyperEVM (~30M blocks) = ~360 MB.
 - **Read latency:** single lookups are in-process SQLite B-tree lookups on mmap'd pages — sub-microsecond on warm cache. 10k-block batch in <10ms.
 - **SQLite tuning:** WAL mode, 64 MB page cache, 1 GB mmap, `WITHOUT ROWID` table, `busy_timeout` for deploy overlap safety, periodic WAL checkpointing.
-- **Graceful shutdown:** SIGINT/SIGTERM stops all sync workers, interrupts retry backoff, checkpoints WAL, closes DB handles.
-- **Error handling:** RPC retries with exponential backoff (only for transient errors). Global error boundary on API routes. `unhandledRejection` handler prevents process crashes.
+- **Graceful shutdown:** SIGINT/SIGTERM triggers the FastAPI lifespan shutdown — cancels all sync tasks, checkpoints WAL, closes DB handles.
+- **Error handling:** RPC retries with exponential backoff (only for transient errors). Global exception handler on API routes.
 - **Health behavior:** `/health` stays green during clean startup, but flips to `503` if a chain fails before its first successful sync, exceeds its initial-sync grace period, becomes unreadable, or falls behind the lag budget.
 - **Rate limiting:** not built-in. Use a reverse proxy (nginx, Cloudflare, etc.) in front of the service.

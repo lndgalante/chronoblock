@@ -32,40 +32,24 @@ export interface Block {
 
 // ── Chains ───────────────────────────────────────────────────────────
 
-export const CHAINS: Chain[] = [
-  {
-    id: 1,
-    name: "ethereum",
-    rpc: process.env.ETH_RPC_URL ?? "https://eth.llamarpc.com",
-    rpcBatchSize: 100,
-    rpcConcurrency: 5,
-    finalityBlocks: 64,
-  },
-  {
-    id: 534352,
-    name: "scroll",
-    rpc: process.env.SCROLL_RPC_URL ?? "https://rpc.scroll.io",
-    rpcBatchSize: 100,
-    rpcConcurrency: 5,
-    finalityBlocks: 300,
-  },
-  {
-    id: 57073,
-    name: "ink",
-    rpc: process.env.INK_RPC_URL ?? "https://rpc-gel.inkonchain.com",
-    rpcBatchSize: 100,
-    rpcConcurrency: 5,
-    finalityBlocks: 300,
-  },
-  {
-    id: 998,
-    name: "hyperevm",
-    rpc: process.env.HYPEREVM_RPC_URL ?? "https://rpc.hyperliquid.xyz/evm",
-    rpcBatchSize: 100,
-    rpcConcurrency: 5,
-    finalityBlocks: 300,
-  },
-];
+/** All supported chains. Only those with an RPC URL in the environment are enabled. */
+const CHAIN_CANDIDATES = [
+  { id: 1, name: "ethereum", envVar: "ETH_RPC_URL", rpcBatchSize: 100, rpcConcurrency: 5, finalityBlocks: 64 },
+  { id: 534352, name: "scroll", envVar: "SCROLL_RPC_URL", rpcBatchSize: 100, rpcConcurrency: 5, finalityBlocks: 300 },
+  { id: 57073, name: "ink", envVar: "INK_RPC_URL", rpcBatchSize: 100, rpcConcurrency: 5, finalityBlocks: 300 },
+  { id: 998, name: "hyperevm", envVar: "HYPEREVM_RPC_URL", rpcBatchSize: 100, rpcConcurrency: 5, finalityBlocks: 300 },
+] as const;
+
+export const CHAINS: Chain[] = CHAIN_CANDIDATES
+  .filter((c) => process.env[c.envVar])
+  .map((c) => ({
+    id: c.id,
+    name: c.name,
+    rpc: process.env[c.envVar]!,
+    rpcBatchSize: c.rpcBatchSize,
+    rpcConcurrency: c.rpcConcurrency,
+    finalityBlocks: c.finalityBlocks,
+  }));
 
 // ── Lookup maps ──────────────────────────────────────────────────────
 
@@ -115,8 +99,15 @@ for (const c of CHAINS) {
   seenNames.add(c.name);
 }
 
+if (CHAINS.length === 0)
+  errors.push("no chains enabled — set at least one RPC URL (e.g. ETH_RPC_URL)");
+
 if (errors.length > 0) {
   console.error("fatal: config validation failed");
   for (const e of errors) console.error(`  - ${e}`);
   process.exit(1);
 }
+
+const skipped = CHAIN_CANDIDATES.filter((c) => !process.env[c.envVar]);
+if (skipped.length > 0)
+  console.warn(`disabled chains (no RPC): ${skipped.map((c) => c.name).join(", ")}`);

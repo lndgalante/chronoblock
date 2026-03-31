@@ -1,4 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+.uv/
+uv.lock
+
+# TypeScript (archived)
 tsconfig.tsbuildinfo
-.DS_Store
-node_modules
+node_modules/
 bun.lock
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Data
+data/
+
+# Environment
+.env
