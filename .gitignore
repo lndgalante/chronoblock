@@ -6,6 +6,7 @@ dist/
 .venv/
 .uv/
 uv.lock
+.coverage
 
 # TypeScript (archived)
 tsconfig.tsbuildinfo

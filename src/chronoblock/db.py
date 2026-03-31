@@ -171,13 +171,13 @@ def insert_blocks(chain: Chain, blocks: list[Block]) -> None:
 
 
 def checkpoint_all() -> None:
-    for store in _stores.values():
+    for chain_id, store in _stores.items():
         try:
             store.connection.execute("PRAGMA optimize")
             store.connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
             store.connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        except sqlite3.Error:
-            pass
+        except sqlite3.Error as err:
+            log("warn", "checkpoint failed", chain_id=chain_id, error=str(err))
 
 
 def is_healthy(chain: Chain) -> bool:

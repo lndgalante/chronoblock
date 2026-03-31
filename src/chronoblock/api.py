@@ -27,6 +27,13 @@ from chronoblock.log import log
 from chronoblock.rpc import close_client
 from chronoblock.syncer import SyncState, get_sync_state, start_all, stop_all
 
+# Type aliases for dependency-injected callables.
+GetTimestampsFn = Callable[[Chain, list[int]], list[int | None]]
+BlockCountFn = Callable[[Chain], int]
+IsHealthyFn = Callable[[Chain], bool]
+GetSyncStateFn = Callable[[Chain], SyncState]
+NowFn = Callable[[], float]
+
 INITIAL_SYNC_GRACE_SECS = 5 * 60
 BLOCK_PARAM_RE = re.compile(r"^\d+$")
 
@@ -34,23 +41,23 @@ BLOCK_PARAM_RE = re.compile(r"^\d+$")
 # ── Dependencies (for DI / test overrides) ───────────────────────────
 
 
-def dep_get_timestamps() -> Callable[[Chain, list[int]], list[int | None]]:
+def dep_get_timestamps() -> GetTimestampsFn:
     return get_timestamps
 
 
-def dep_block_count() -> Callable[[Chain], int]:
+def dep_block_count() -> BlockCountFn:
     return block_count
 
 
-def dep_is_healthy() -> Callable[[Chain], bool]:
+def dep_is_healthy() -> IsHealthyFn:
     return is_healthy
 
 
-def dep_get_sync_state() -> Callable[[Chain], SyncState]:
+def dep_get_sync_state() -> GetSyncStateFn:
     return get_sync_state
 
 
-def dep_now() -> Callable[[], float]:
+def dep_now() -> NowFn:
     return time.time
 
 
@@ -169,9 +176,9 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health(
-        fn_is_healthy: Callable = Depends(dep_is_healthy),
-        fn_get_sync_state: Callable = Depends(dep_get_sync_state),
-        fn_now: Callable = Depends(dep_now),
+        fn_is_healthy: IsHealthyFn = Depends(dep_is_healthy),
+        fn_get_sync_state: GetSyncStateFn = Depends(dep_get_sync_state),
+        fn_now: NowFn = Depends(dep_now),
     ) -> JSONResponse:
         degraded: list[str] = []
         now = fn_now()
@@ -194,7 +201,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/timestamps")
     async def post_timestamps(
         request: Request,
-        fn_get_timestamps: Callable = Depends(dep_get_timestamps),
+        fn_get_timestamps: GetTimestampsFn = Depends(dep_get_timestamps),
     ) -> JSONResponse:
         request_id = getattr(request.state, "request_id", None)
 
@@ -225,7 +232,7 @@ def create_app() -> FastAPI:
                 return _error_response(400, "invalid_block_number", f"invalid block number at index {i}: {b}", request_id)
 
         timestamps = fn_get_timestamps(chain, blocks)
-        results = {str(blocks[i]): timestamps[i] for i in range(len(blocks))}
+        results = {str(bn): ts for bn, ts in zip(blocks, timestamps)}
 
         return JSONResponse({"chain_id": chain.id, "results": results})
 
@@ -235,8 +242,8 @@ def create_app() -> FastAPI:
     def get_single_timestamp(
         chain_name: str,
         block: str,
-        fn_get_timestamps: Callable = Depends(dep_get_timestamps),
-        fn_get_sync_state: Callable = Depends(dep_get_sync_state),
+        fn_get_timestamps: GetTimestampsFn = Depends(dep_get_timestamps),
+        fn_get_sync_state: GetSyncStateFn = Depends(dep_get_sync_state),
     ) -> JSONResponse:
         chain = CHAIN_BY_NAME.get(chain_name.lower())
         if not chain:
@@ -270,8 +277,8 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/status")
     def get_status(
-        fn_get_sync_state: Callable = Depends(dep_get_sync_state),
-        fn_block_count: Callable = Depends(dep_block_count),
+        fn_get_sync_state: GetSyncStateFn = Depends(dep_get_sync_state),
+        fn_block_count: BlockCountFn = Depends(dep_block_count),
     ) -> JSONResponse:
         chains = []
         for ch in CHAINS:

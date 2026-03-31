@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 
+from typing import Any
+
 import httpx
 
 from chronoblock.config import Chain, Block
@@ -133,7 +135,7 @@ def _is_retryable(err: Exception) -> bool:
     return False
 
 
-async def _rpc(chain: Chain, method: str, params: list) -> any:
+async def _rpc(chain: Chain, method: str, params: list) -> Any:
     return await _send(chain, {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}, is_batch=False)
 
 
@@ -146,7 +148,7 @@ async def _rpc_batch(chain: Chain, payload: list) -> list:
     return result
 
 
-async def _send(chain: Chain, payload: any, *, is_batch: bool) -> any:
+async def _send(chain: Chain, payload: Any, *, is_batch: bool) -> Any:
     """Core fetch loop with retry and exponential backoff."""
     client = _get_client()
     last_err: Exception | None = None
