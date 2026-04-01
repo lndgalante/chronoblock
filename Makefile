@@ -1,4 +1,4 @@
-.PHONY: start test cov lint
+.PHONY: start test cov lint deploy logs
 
 start:
 	uv run python -m chronoblock.main
@@ -11,3 +11,9 @@ cov:
 
 lint:
 	uv run ruff check src/ tests/
+
+deploy:
+	railway up
+
+logs:
+	railway logs
