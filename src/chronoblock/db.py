@@ -86,19 +86,26 @@ def _open(chain: Chain) -> _ChainDB:
     file_path = os.path.join(settings.data_dir, f"{chain.name}.db")
     conn = sqlite3.connect(file_path, check_same_thread=False)
 
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    conn.execute("PRAGMA busy_timeout = 5000")
-    conn.execute("PRAGMA cache_size = -64000")
-    conn.execute("PRAGMA mmap_size = 1073741824")
-    conn.execute("PRAGMA temp_store = MEMORY")
+    try:
+        result = conn.execute("PRAGMA journal_mode = WAL").fetchone()
+        if result is None or result[0].lower() != "wal":
+            raise DataDirError(f"WAL mode not supported for {file_path}")
 
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS blocks (
-            block_number INTEGER PRIMARY KEY,
-            timestamp    INTEGER NOT NULL
-        ) WITHOUT ROWID, STRICT
-    """)
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA cache_size = -64000")
+        conn.execute("PRAGMA mmap_size = 1073741824")
+        conn.execute("PRAGMA temp_store = MEMORY")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS blocks (
+                block_number INTEGER PRIMARY KEY,
+                timestamp    INTEGER NOT NULL
+            ) WITHOUT ROWID, STRICT
+        """)
+    except Exception:
+        conn.close()
+        raise
 
     store = _ChainDB(conn, file_path)
     _stores[chain.id] = store

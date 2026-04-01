@@ -81,14 +81,24 @@ def _should_degrade_chain(sync: SyncState, now: float) -> str | None:
 # ── Lifespan ─────────────────────────────────────────────────────────
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-    await start_all()
-    log("info", f"listening on :{settings.port}", chains=[c.name for c in CHAINS])
-    yield
+async def _shutdown() -> None:
     await stop_all()
     await asyncio.to_thread(close_all)
     await close_client()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+    try:
+        await start_all()
+    except Exception:
+        await _shutdown()
+        raise
+    log("info", f"listening on :{settings.port}", chains=[c.name for c in CHAINS])
+    try:
+        yield
+    finally:
+        await _shutdown()
 
 
 # ── App factory ──────────────────────────────────────────────────────
