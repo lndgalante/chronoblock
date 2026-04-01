@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -86,7 +87,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     log("info", f"listening on :{settings.port}", chains=[c.name for c in CHAINS])
     yield
     await stop_all()
-    close_all()
+    await asyncio.to_thread(close_all)
     await close_client()
 
 
@@ -172,7 +173,7 @@ def create_app() -> FastAPI:
                     400, "invalid_block_number", f"invalid block number at index {i}: {b}", request_id
                 )
 
-        timestamps = fn_get_timestamps(chain, blocks)
+        timestamps = await asyncio.to_thread(fn_get_timestamps, chain, blocks)
         results = {str(bn): ts for bn, ts in zip(blocks, timestamps, strict=True)}
 
         return JSONResponse({"chain_id": chain.id, "results": results})
