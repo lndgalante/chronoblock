@@ -8,6 +8,7 @@ never skips blocks.
 from __future__ import annotations
 
 import asyncio
+import random
 from typing import Any, Literal, overload
 
 import httpx
@@ -87,6 +88,7 @@ async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -
         for result in results:
             if isinstance(result, BaseException):
                 had_failure = True
+                log("warn", "batch wave failed", chain=chain.name, error=str(result))
             else:
                 for block in result:
                     all_blocks[block.number] = block.timestamp
@@ -214,6 +216,7 @@ async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *,
             last_err = err
             if attempt == MAX_RETRIES or not _is_retryable(err):
                 raise
-            await asyncio.sleep(min(1.0 * 2**attempt, 30.0))
+            log("warn", f"retry {attempt + 1}/{MAX_RETRIES}", chain=chain.name, error=str(err))
+            await asyncio.sleep(min(1.0 * 2**attempt, 30.0) * (0.5 + random.random()))
 
     raise last_err or RpcError(chain.name, "unreachable")

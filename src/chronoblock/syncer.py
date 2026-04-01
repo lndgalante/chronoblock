@@ -35,6 +35,7 @@ from chronoblock.rpc import fetch_block_timestamps, get_latest_block_number
 __all__ = ["SyncState", "get_sync_state", "start_all", "stop_all"]
 
 CHECKPOINT_INTERVAL = 60.0
+MIN_ERROR_SLEEP = 5.0
 MAX_ERROR_SLEEP = 30.0
 
 
@@ -93,6 +94,7 @@ async def _sync_loop(chain: Chain) -> None:
     await asyncio.sleep(random.random() * 2.0)
 
     cached_latest: int | None = None
+    consecutive_errors = 0
 
     while True:
         state = _sync_states[chain.id]
@@ -101,6 +103,7 @@ async def _sync_loop(chain: Chain) -> None:
             state.last_error = None
             state.last_error_at = None
             state.last_success_at = time.time()
+            consecutive_errors = 0
 
             if catching:
                 cached_latest = latest
@@ -113,17 +116,21 @@ async def _sync_loop(chain: Chain) -> None:
             return
         except RpcRateLimitError as err:
             cached_latest = None
+            consecutive_errors += 1
             state.last_error = str(err)
             state.last_error_at = time.time()
-            sleep = err.retry_after if err.retry_after is not None else MAX_ERROR_SLEEP
-            log("warn", str(err), chain=chain.name, retry_after=sleep)
+            escalated = min(MIN_ERROR_SLEEP * 2 ** (consecutive_errors - 1), MAX_ERROR_SLEEP)
+            sleep = max(err.retry_after, escalated) if err.retry_after is not None else escalated
+            log("warn", str(err), chain=chain.name, retry_in=sleep)
             await asyncio.sleep(sleep)
         except Exception as err:
             cached_latest = None
+            consecutive_errors += 1
             state.last_error = str(err)
             state.last_error_at = time.time()
-            log("error", str(err), chain=chain.name)
-            await asyncio.sleep(min(state.observed_block_time_ms / 1000 * 3, MAX_ERROR_SLEEP))
+            sleep = min(MIN_ERROR_SLEEP * 2 ** (consecutive_errors - 1), MAX_ERROR_SLEEP)
+            log("error", str(err), chain=chain.name, retry_in=sleep)
+            await asyncio.sleep(sleep)
 
 
 async def _sync_once(chain: Chain, cached_latest: int | None) -> tuple[bool, int]:
