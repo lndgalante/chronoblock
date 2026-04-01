@@ -8,7 +8,7 @@ never skips blocks.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal, overload
 
 import httpx
 
@@ -167,6 +167,11 @@ async def _rpc_batch(chain: Chain, payload: list[dict[str, Any]]) -> list[dict[s
         log("warn", f"batch response length mismatch: expected {len(payload)}, got {len(result)}", chain=chain.name)
     return result
 
+
+@overload
+async def _send(chain: Chain, payload: dict[str, Any], *, is_batch: Literal[False]) -> Any: ...
+@overload
+async def _send(chain: Chain, payload: list[dict[str, Any]], *, is_batch: Literal[True]) -> list[dict[str, Any]]: ...
 
 async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *, is_batch: bool) -> Any:
     """Core fetch loop with retry and exponential backoff."""

@@ -10,7 +10,7 @@ import sys
 from typing import TypedDict
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from chronoblock.errors import ConfigError
 from chronoblock.models import Chain
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     ink_rpc_url: str | None = Field(default=None)
     hyperevm_rpc_url: str | None = Field(default=None)
 
-    model_config = {"env_file": ".env", "case_sensitive": False}
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
 
 # ── Chain candidates ─────────────────────────────────────────────────

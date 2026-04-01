@@ -22,11 +22,11 @@ __all__ = [
     "dep_now",
 ]
 
-GetTimestampsFn = Callable[[Chain, list[int]], list[int | None]]
-BlockCountFn = Callable[[Chain], int]
-IsHealthyFn = Callable[[Chain], bool]
-GetSyncStateFn = Callable[[Chain], SyncState]
-NowFn = Callable[[], float]
+type GetTimestampsFn = Callable[[Chain, list[int]], list[int | None]]
+type BlockCountFn = Callable[[Chain], int]
+type IsHealthyFn = Callable[[Chain], bool]
+type GetSyncStateFn = Callable[[Chain], SyncState]
+type NowFn = Callable[[], float]
 
 
 def dep_get_timestamps() -> GetTimestampsFn:
