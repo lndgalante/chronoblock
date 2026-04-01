@@ -86,6 +86,8 @@ async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -
 
         had_failure = False
         for result in results:
+            if isinstance(result, RpcRateLimitError):
+                raise result
             if isinstance(result, BaseException):
                 had_failure = True
                 log("warn", "batch wave failed", chain=chain.name, error=str(result))
@@ -107,6 +109,9 @@ async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -
     return out
 
 
+_RATE_LIMIT_KEYWORDS = ("exceeded", "rate limit", "capacity", "too many requests")
+
+
 async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Block]:
     payload = [
         {
@@ -121,12 +126,13 @@ async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Blo
     data = await _rpc_batch(chain, payload)
 
     blocks: list[Block] = []
+    error_counts: dict[str, int] = {}
+
     for r in data:
         if r.get("error"):
             err = r["error"]
-            log(
-                "warn", f"batch item RPC error: {err.get('message', err.get('code'))}", chain=chain.name, id=r.get("id")
-            )
+            msg = str(err.get("message", err.get("code", "unknown")))
+            error_counts[msg] = error_counts.get(msg, 0) + 1
             continue
         result = r.get("result")
         if result is None:
@@ -144,6 +150,17 @@ async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Blo
             )
             continue
         blocks.append(Block(number=num, timestamp=ts))
+
+    if error_counts:
+        for msg, count in error_counts.items():
+            log("warn", f"batch RPC errors: {count}/{len(data)} failed", chain=chain.name, error=msg)
+
+        rate_limited = sum(
+            count for msg, count in error_counts.items()
+            if any(kw in msg.lower() for kw in _RATE_LIMIT_KEYWORDS)
+        )
+        if rate_limited > len(data) // 2:
+            raise RpcRateLimitError(chain.name)
 
     return blocks
 
