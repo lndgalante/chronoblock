@@ -71,6 +71,45 @@ Returns lag, observed block time, error state, and ingestion counters for each c
 
 Returns `200 OK` if all chains are within `HEALTH_MAX_LAG_SECS`. Returns `503` with degradation details otherwise. Chains still performing their initial sync get a grace period.
 
+## Deploy to Railway
+
+Requires the [Railway CLI](https://docs.railway.com/guides/cli) and a linked project.
+
+```bash
+make deploy       # builds and deploys via Dockerfile
+make logs         # tail runtime logs
+```
+
+### Seeding with local data
+
+A full Ethereum backfill takes time. To skip it, upload your local `.db` files and let the service download them on first boot.
+
+**1. Prepare the archive:**
+
+```bash
+for f in data/*.db; do sqlite3 "$f" "PRAGMA wal_checkpoint(TRUNCATE);"; done
+tar czf data.tar.gz -C data ethereum.db scroll.db ink.db hyperevm.db
+```
+
+**2. Upload** to any host that returns a direct download URL. GitHub releases work well:
+
+```bash
+gh release create seed-v1 data.tar.gz --title "Seed data" --notes "Pre-indexed databases"
+```
+
+**3. Set `SEED_URL` and deploy:**
+
+```bash
+railway variable set SEED_URL=https://github.com/<owner>/<repo>/releases/download/seed-v1/data.tar.gz
+make deploy
+```
+
+On first boot, the service downloads and extracts the archive into `DATA_DIR`. If databases already exist in `DATA_DIR`, the seed is skipped. After a successful seed, unset the variable:
+
+```bash
+railway variable set SEED_URL=
+```
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -79,6 +118,7 @@ Returns `200 OK` if all chains are within `HEALTH_MAX_LAG_SECS`. Returns `503` w
 | `DATA_DIR` | `./data` | SQLite directory (one `.db` per chain) |
 | `HEALTH_MAX_LAG_SECS` | `120` | Max lag before `/health` returns 503 |
 | `SYNC_CHUNK_SIZE` | `2000` | Blocks per sync cycle |
+| `SEED_URL` | — | URL to a `.tar.gz` of `.db` files (one-time seed, see above) |
 | `ETH_RPC_URL` | — | Ethereum RPC (set to enable) |
 | `SCROLL_RPC_URL` | — | Scroll RPC (set to enable) |
 | `INK_RPC_URL` | — | Ink RPC (set to enable) |

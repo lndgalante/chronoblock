@@ -13,7 +13,7 @@ lint:
 	uv run ruff check src/ tests/
 
 deploy:
-	railway up
+	railway up --detach
 
 logs:
 	railway logs

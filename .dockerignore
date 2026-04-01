@@ -1,0 +1,16 @@
+data/
+*.tar.gz
+.venv/
+.uv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.env
+.git/
+.DS_Store
+.idea/
+.vscode/
+.coverage
+.pytest_cache/
+tests/

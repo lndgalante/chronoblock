@@ -6,6 +6,7 @@ so deploy pipelines fail fast.
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import TypedDict
 
@@ -25,6 +26,8 @@ class Settings(BaseSettings):
     data_dir: str = Field(default="./data")
     health_max_lag_secs: int = Field(default=120)
     sync_chunk_size: int = Field(default=2000)
+
+    seed_url: str | None = Field(default=None)
 
     eth_rpc_url: str | None = Field(default=None)
     scroll_rpc_url: str | None = Field(default=None)
@@ -46,37 +49,39 @@ class _ChainCandidate(TypedDict):
     finality_blocks: int
 
 
+_is_deployed = "RAILWAY_ENVIRONMENT_NAME" in os.environ
+
 _CHAIN_CANDIDATES: list[_ChainCandidate] = [
     {
         "id": 1,
         "name": "ethereum",
         "field": "eth_rpc_url",
-        "rpc_batch_size": 50,
-        "rpc_concurrency": 2,
+        "rpc_batch_size": 50 if _is_deployed else 100,
+        "rpc_concurrency": 2 if _is_deployed else 5,
         "finality_blocks": 64,
     },
     {
         "id": 534352,
         "name": "scroll",
         "field": "scroll_rpc_url",
-        "rpc_batch_size": 50,
-        "rpc_concurrency": 2,
+        "rpc_batch_size": 50 if _is_deployed else 100,
+        "rpc_concurrency": 2 if _is_deployed else 5,
         "finality_blocks": 300,
     },
     {
         "id": 57073,
         "name": "ink",
         "field": "ink_rpc_url",
-        "rpc_batch_size": 50,
-        "rpc_concurrency": 2,
+        "rpc_batch_size": 50 if _is_deployed else 100,
+        "rpc_concurrency": 2 if _is_deployed else 5,
         "finality_blocks": 300,
     },
     {
         "id": 998,
         "name": "hyperevm",
         "field": "hyperevm_rpc_url",
-        "rpc_batch_size": 50,
-        "rpc_concurrency": 2,
+        "rpc_batch_size": 50 if _is_deployed else 100,
+        "rpc_concurrency": 2 if _is_deployed else 5,
         "finality_blocks": 300,
     },
 ]
