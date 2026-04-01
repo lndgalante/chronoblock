@@ -135,12 +135,12 @@ async def _sync_loop(chain: Chain) -> None:
 
 async def _sync_once(chain: Chain, cached_latest: int | None) -> tuple[bool, int]:
     latest = cached_latest if cached_latest is not None else await get_latest_block_number(chain)
-    stored = await asyncio.to_thread(last_block, chain)
-    from_block = stored + 1 if stored is not None else 0
 
     state = _sync_states[chain.id]
     state.latest_chain_block = latest
-    state.last_synced_block = stored
+
+    stored = state.last_synced_block
+    from_block = stored + 1 if stored is not None else 0
 
     if from_block > latest:
         return False, latest

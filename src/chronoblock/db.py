@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sqlite3
+import threading
 import time
 
 from chronoblock.config import settings
@@ -75,6 +76,7 @@ class _ChainDB:
 
 
 _stores: dict[int, _ChainDB] = {}
+_open_lock = threading.Lock()
 
 
 def _open(chain: Chain) -> _ChainDB:
@@ -83,33 +85,38 @@ def _open(chain: Chain) -> _ChainDB:
     if existing is not None:
         return existing
 
-    file_path = os.path.join(settings.data_dir, f"{chain.name}.db")
-    conn = sqlite3.connect(file_path, check_same_thread=False)
+    with _open_lock:
+        existing = _stores.get(chain.id)
+        if existing is not None:
+            return existing
 
-    try:
-        result = conn.execute("PRAGMA journal_mode = WAL").fetchone()
-        if result is None or result[0].lower() != "wal":
-            raise DataDirError(f"WAL mode not supported for {file_path}")
+        file_path = os.path.join(settings.data_dir, f"{chain.name}.db")
+        conn = sqlite3.connect(file_path, check_same_thread=False)
 
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        conn.execute("PRAGMA cache_size = -64000")
-        conn.execute("PRAGMA mmap_size = 1073741824")
-        conn.execute("PRAGMA temp_store = MEMORY")
+        try:
+            result = conn.execute("PRAGMA journal_mode = WAL").fetchone()
+            if result is None or result[0].lower() != "wal":
+                raise DataDirError(f"WAL mode not supported for {file_path}")
 
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS blocks (
-                block_number INTEGER PRIMARY KEY,
-                timestamp    INTEGER NOT NULL
-            ) WITHOUT ROWID, STRICT
-        """)
-    except Exception:
-        conn.close()
-        raise
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA busy_timeout = 5000")
+            conn.execute("PRAGMA cache_size = -64000")
+            conn.execute("PRAGMA mmap_size = 1073741824")
+            conn.execute("PRAGMA temp_store = MEMORY")
 
-    store = _ChainDB(conn, file_path)
-    _stores[chain.id] = store
-    return store
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS blocks (
+                    block_number INTEGER PRIMARY KEY,
+                    timestamp    INTEGER NOT NULL
+                ) WITHOUT ROWID, STRICT
+            """)
+        except Exception:
+            conn.close()
+            raise
+
+        store = _ChainDB(conn, file_path)
+        _stores[chain.id] = store
+        return store
 
 
 # ── Read ─────────────────────────────────────────────────────────────
@@ -161,15 +168,20 @@ def block_count(chain: Chain) -> int:
 def observed_block_time_ms(chain: Chain) -> float:
     store = _open(chain)
     rows = store.connection.execute(
-        "SELECT timestamp FROM blocks ORDER BY block_number DESC LIMIT ?",
+        "SELECT block_number, timestamp FROM blocks ORDER BY block_number DESC LIMIT ?",
         (BLOCK_TIME_SAMPLE_SIZE,),
     ).fetchall()
 
     if len(rows) < 2:
         return DEFAULT_BLOCK_TIME_MS
 
+    # Verify contiguity: newest - oldest block number should equal count - 1
+    if rows[0][0] - rows[-1][0] != len(rows) - 1:
+        log("warn", "block time sample is not contiguous, using default", chain=chain.name)
+        return DEFAULT_BLOCK_TIME_MS
+
     # rows[0] is newest, rows[-1] is oldest
-    span_secs = rows[0][0] - rows[-1][0]
+    span_secs = rows[0][1] - rows[-1][1]
     intervals = len(rows) - 1
 
     if span_secs <= 0:
@@ -187,7 +199,7 @@ def insert_blocks(chain: Chain, blocks: list[Block]) -> None:
     store = _open(chain)
     store.connection.executemany(
         "INSERT OR IGNORE INTO blocks (block_number, timestamp) VALUES (?, ?)",
-        blocks,
+        [(b.number, b.timestamp) for b in blocks],
     )
     store.connection.commit()
 

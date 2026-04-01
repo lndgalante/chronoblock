@@ -135,7 +135,13 @@ async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Blo
             num = int(result["number"], 16)
             ts = int(result["timestamp"], 16)
         except (KeyError, TypeError, ValueError) as err:
-            log("warn", "malformed block in RPC response", chain=chain.name, error=str(err), block_data=str(result)[:200])
+            log(
+                "warn",
+                "malformed block in RPC response",
+                chain=chain.name,
+                error=str(err),
+                block_data=str(result)[:200],
+            )
             continue
         blocks.append(Block(number=num, timestamp=ts))
 
@@ -174,6 +180,7 @@ async def _rpc_batch(chain: Chain, payload: list[dict[str, Any]]) -> list[dict[s
 async def _send(chain: Chain, payload: dict[str, Any], *, is_batch: Literal[False]) -> Any: ...
 @overload
 async def _send(chain: Chain, payload: list[dict[str, Any]], *, is_batch: Literal[True]) -> list[dict[str, Any]]: ...
+
 
 async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *, is_batch: bool) -> Any:
     """Core fetch loop with retry and exponential backoff."""
