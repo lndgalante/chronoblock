@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from chronoblock.config import CHAIN_BY_ID, CHAIN_BY_NAME, CHAINS, settings
-from chronoblock.db import close_all
+from chronoblock.db import close_all, warm_caches
 from chronoblock.dependencies import (
     BlockCountFn,
     GetSyncStateFn,
@@ -177,6 +177,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         log("error", "seed failed, continuing without seed data", error=str(err))
     try:
         await start_all()
+        await asyncio.to_thread(warm_caches, CHAINS)
     except Exception:
         await _shutdown()
         raise

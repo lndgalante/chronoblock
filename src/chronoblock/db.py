@@ -31,6 +31,7 @@ __all__ = [
     "checkpoint_all",
     "is_healthy",
     "close_all",
+    "warm_caches",
 ]
 
 DEFAULT_BLOCK_TIME_MS = 1_000
@@ -229,6 +230,22 @@ def is_healthy(chain: Chain) -> bool:
 
 
 # ── Lifecycle ────────────────────────────────────────────────────────
+
+
+def warm_caches(chains: list[Chain]) -> None:
+    """Force a sequential scan of each chain's B-tree to page mmap into RAM.
+
+    Without this, the first request for spread-out blocks triggers random
+    page faults on network-attached storage (~150ms each).  A sequential
+    scan is much faster and eliminates cold-start latency entirely.
+    """
+    for chain in chains:
+        store = _open(chain)
+        start = time.monotonic()
+        # SUM forces a full table scan without loading rows into Python.
+        store.connection.execute("SELECT SUM(timestamp) FROM blocks").fetchone()
+        elapsed_ms = (time.monotonic() - start) * 1_000
+        log("info", "cache warmed", chain=chain.name, duration_ms=round(elapsed_ms))
 
 
 def close_all() -> None:

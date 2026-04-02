@@ -72,8 +72,8 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "id": 57073,
         "name": "ink",
         "field": "ink_rpc_url",
-        "rpc_batch_size": 50 if _is_deployed else 100,
-        "rpc_concurrency": 2 if _is_deployed else 5,
+        "rpc_batch_size": 50 if _is_deployed else 50,
+        "rpc_concurrency": 2 if _is_deployed else 3,
         "finality_blocks": 300,
     },
     {
