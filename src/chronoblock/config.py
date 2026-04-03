@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     port: int = Field(default=3000)
     data_dir: str = Field(default="./data")
     health_max_lag_secs: int = Field(default=120)
-    sync_chunk_size: int = Field(default=2000)
+    sync_chunk_size: int = Field(default=5000)
 
     seed_url: str | None = Field(default=None)
 
@@ -56,7 +56,7 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "id": 1,
         "name": "ethereum",
         "field": "eth_rpc_url",
-        "rpc_batch_size": 50 if _is_deployed else 100,
+        "rpc_batch_size": 50,
         "rpc_concurrency": 2 if _is_deployed else 5,
         "finality_blocks": 64,
     },
@@ -64,7 +64,7 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "id": 534352,
         "name": "scroll",
         "field": "scroll_rpc_url",
-        "rpc_batch_size": 50 if _is_deployed else 100,
+        "rpc_batch_size": 50,
         "rpc_concurrency": 2 if _is_deployed else 5,
         "finality_blocks": 300,
     },
@@ -72,15 +72,15 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "id": 57073,
         "name": "ink",
         "field": "ink_rpc_url",
-        "rpc_batch_size": 50 if _is_deployed else 50,
-        "rpc_concurrency": 2 if _is_deployed else 3,
+        "rpc_batch_size": 50,
+        "rpc_concurrency": 2 if _is_deployed else 10,
         "finality_blocks": 300,
     },
     {
         "id": 998,
         "name": "hyperevm",
         "field": "hyperevm_rpc_url",
-        "rpc_batch_size": 50 if _is_deployed else 100,
+        "rpc_batch_size": 50,
         "rpc_concurrency": 2 if _is_deployed else 5,
         "finality_blocks": 300,
     },

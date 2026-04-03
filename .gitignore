@@ -15,6 +15,7 @@ uv.lock
 
 # Data
 data/
+data.tar.gz
 
 # Environment
 .env

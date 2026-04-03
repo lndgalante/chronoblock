@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from typing import Any, Literal, overload
 
 import httpx
@@ -27,6 +28,7 @@ __all__ = ["get_latest_block_number", "fetch_block_timestamps", "close_client"]
 
 MAX_RETRIES = 5
 TIMEOUT = httpx.Timeout(30.0)
+RPC_RATE_LIMIT = 400  # calls/sec — margin under QuickNode's 500/sec cap
 
 _client: httpx.AsyncClient | None = None
 
@@ -43,6 +45,33 @@ async def close_client() -> None:
     if _client is not None and not _client.is_closed:
         await _client.aclose()
         _client = None
+
+
+# ── Rate limiter ─────────────────────────────────────────────────────
+
+
+class _RateLimiter:
+    """Leaky-bucket rate limiter shared across all chains (account-level limit)."""
+
+    __slots__ = ("_rate", "_next", "_lock")
+
+    def __init__(self, rate: float):
+        self._rate = rate
+        self._next = 0.0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, tokens: int) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            self._next = max(self._next, now)
+            delay = self._next - now
+            self._next += tokens / self._rate
+
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+
+_rate_limiter = _RateLimiter(RPC_RATE_LIMIT)
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -76,27 +105,32 @@ async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -
         s += chain.rpc_batch_size
 
     all_blocks: dict[int, int] = {}
+    semaphore = asyncio.Semaphore(chain.rpc_concurrency)
+    had_failure = False
 
-    for i in range(0, len(batches), chain.rpc_concurrency):
-        wave = batches[i : i + chain.rpc_concurrency]
-        results = await asyncio.gather(
-            *(_fetch_batch(chain, b_from, b_to) for b_from, b_to in wave),
-            return_exceptions=True,
-        )
-
-        had_failure = False
-        for result in results:
-            if isinstance(result, RpcRateLimitError):
-                raise result
-            if isinstance(result, BaseException):
-                had_failure = True
-                log("warn", "batch wave failed", chain=chain.name, error=str(result))
-            else:
-                for block in result:
-                    all_blocks[block.number] = block.timestamp
-
+    async def _guarded_fetch(b_from: int, b_to: int) -> list[Block] | BaseException:
+        nonlocal had_failure
         if had_failure:
-            break
+            return []
+        async with semaphore:
+            try:
+                return await _fetch_batch(chain, b_from, b_to)
+            except BaseException as exc:
+                return exc
+
+    results = await asyncio.gather(
+        *(_guarded_fetch(b_from, b_to) for b_from, b_to in batches),
+    )
+
+    for result in results:
+        if isinstance(result, RpcRateLimitError):
+            raise result
+        if isinstance(result, BaseException):
+            had_failure = True
+            log("warn", "batch failed", chain=chain.name, error=str(result))
+        else:
+            for block in result:
+                all_blocks[block.number] = block.timestamp
 
     # Extract contiguous prefix starting at from_block.
     out: list[Block] = []
@@ -203,8 +237,10 @@ async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *,
     """Core fetch loop with retry and exponential backoff."""
     client = _get_client()
     last_err: Exception | None = None
+    token_count = len(payload) if is_batch else 1
 
     for attempt in range(MAX_RETRIES + 1):
+        await _rate_limiter.acquire(token_count)
         try:
             try:
                 response = await client.post(
