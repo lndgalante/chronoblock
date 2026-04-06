@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     seed_url: str | None = Field(default=None)
 
     eth_rpc_url: str | None = Field(default=None)
-    scroll_rpc_url: str | None = Field(default=None)
+    base_rpc_url: str | None = Field(default=None)
+    optimism_rpc_url: str | None = Field(default=None)
     ink_rpc_url: str | None = Field(default=None)
     hyperevm_rpc_url: str | None = Field(default=None)
 
@@ -61,11 +62,19 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "finality_blocks": 64,
     },
     {
-        "id": 534352,
-        "name": "scroll",
-        "field": "scroll_rpc_url",
+        "id": 8453,
+        "name": "base",
+        "field": "base_rpc_url",
         "rpc_batch_size": 50,
-        "rpc_concurrency": 2 if _is_deployed else 5,
+        "rpc_concurrency": 2 if _is_deployed else 10,
+        "finality_blocks": 300,
+    },
+    {
+        "id": 10,
+        "name": "optimism",
+        "field": "optimism_rpc_url",
+        "rpc_batch_size": 50,
+        "rpc_concurrency": 2 if _is_deployed else 10,
         "finality_blocks": 300,
     },
     {
