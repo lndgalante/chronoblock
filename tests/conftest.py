@@ -7,9 +7,8 @@ import os
 # Set dummy RPC URLs before any config import
 os.environ.setdefault("ETH_RPC_URL", "http://eth.test")
 os.environ.setdefault("BASE_RPC_URL", "http://base.test")
-os.environ.setdefault("OPTIMISM_RPC_URL", "http://optimism.test")
 os.environ.setdefault("INK_RPC_URL", "http://ink.test")
-os.environ.setdefault("HYPEREVM_RPC_URL", "http://hyperevm.test")
+os.environ.setdefault("PLASMA_RPC_URL", "http://plasma.test")
 os.environ.setdefault("DATA_DIR", "/tmp/chronoblock-test")
 
 import pytest

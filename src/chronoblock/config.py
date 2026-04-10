@@ -31,9 +31,8 @@ class Settings(BaseSettings):
 
     eth_rpc_url: str | None = Field(default=None)
     base_rpc_url: str | None = Field(default=None)
-    optimism_rpc_url: str | None = Field(default=None)
     ink_rpc_url: str | None = Field(default=None)
-    hyperevm_rpc_url: str | None = Field(default=None)
+    plasma_rpc_url: str | None = Field(default=None)
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
@@ -70,14 +69,6 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "finality_blocks": 300,
     },
     {
-        "id": 10,
-        "name": "optimism",
-        "field": "optimism_rpc_url",
-        "rpc_batch_size": 50,
-        "rpc_concurrency": 2 if _is_deployed else 10,
-        "finality_blocks": 300,
-    },
-    {
         "id": 57073,
         "name": "ink",
         "field": "ink_rpc_url",
@@ -86,11 +77,11 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "finality_blocks": 300,
     },
     {
-        "id": 998,
-        "name": "hyperevm",
-        "field": "hyperevm_rpc_url",
+        "id": 9745,
+        "name": "plasma",
+        "field": "plasma_rpc_url",
         "rpc_batch_size": 50,
-        "rpc_concurrency": 2 if _is_deployed else 5,
+        "rpc_concurrency": 2 if _is_deployed else 10,
         "finality_blocks": 300,
     },
 ]
