@@ -80,10 +80,19 @@ async def start_all() -> None:
     log("info", f"started {len(config.CHAINS)} sync workers", chain="all")
 
 
+SHUTDOWN_TIMEOUT = 10.0
+
+
 async def stop_all() -> None:
     for task in _tasks:
         task.cancel()
-    await asyncio.gather(*_tasks, return_exceptions=True)
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*_tasks, return_exceptions=True),
+            timeout=SHUTDOWN_TIMEOUT,
+        )
+    except TimeoutError:
+        log("warn", "shutdown timed out, some tasks did not exit cleanly", timeout=SHUTDOWN_TIMEOUT)
     _tasks.clear()
     await asyncio.to_thread(checkpoint_all)
 
@@ -168,4 +177,7 @@ async def _sync_once(chain: Chain, cached_latest: int | None) -> tuple[bool, int
 async def _checkpoint_timer() -> None:
     while True:
         await asyncio.sleep(CHECKPOINT_INTERVAL)
-        await asyncio.to_thread(checkpoint_all)
+        try:
+            await asyncio.to_thread(checkpoint_all)
+        except Exception as err:
+            log("warn", "checkpoint failed", error=str(err))

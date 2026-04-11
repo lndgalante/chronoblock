@@ -118,11 +118,11 @@ async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -
         *(_guarded_fetch(b_from, b_to) for b_from, b_to in batches),
     )
 
-    for result in results:
+    for (b_from, b_to), result in zip(batches, results, strict=True):
         if isinstance(result, RpcRateLimitError):
             raise result
         if isinstance(result, Exception):
-            log("warn", "batch failed", chain=chain.name, error=str(result))
+            log("warn", "batch failed", chain=chain.name, error=str(result), blocks=f"{b_from}\u2192{b_to}")
         else:
             for block in result:
                 all_blocks[block.number] = block.timestamp
@@ -276,6 +276,9 @@ async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *,
             if attempt == MAX_RETRIES or not is_retryable(err):
                 raise
             log("warn", f"retry {attempt + 1}/{MAX_RETRIES}", chain=chain.name, error=str(err))
-            await asyncio.sleep(min(1.0 * 2**attempt, 30.0) * (0.5 + random.random()))
+            backoff = min(1.0 * 2**attempt, 30.0) * (0.5 + random.random())
+            if isinstance(err, RpcRateLimitError) and err.retry_after is not None:
+                backoff = max(backoff, float(err.retry_after))
+            await asyncio.sleep(backoff)
 
     raise last_err or RpcError(chain.name, "unreachable")
