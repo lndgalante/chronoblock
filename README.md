@@ -88,7 +88,7 @@ A full Ethereum backfill takes time. To skip it, upload your local `.db` files a
 
 ```bash
 for f in data/*.db; do sqlite3 "$f" "PRAGMA wal_checkpoint(TRUNCATE);"; done
-tar czf data.tar.gz -C data ethereum.db scroll.db ink.db hyperevm.db
+tar czf data.tar.gz -C data ethereum.db base.db ink.db plasma.db
 ```
 
 **2. Upload** to any host that returns a direct download URL. GitHub releases work well:
@@ -120,9 +120,9 @@ railway variable set SEED_URL=
 | `SYNC_CHUNK_SIZE` | `2000` | Blocks per sync cycle |
 | `SEED_URL` | — | URL to a `.tar.gz` of `.db` files (one-time seed, see above) |
 | `ETH_RPC_URL` | — | Ethereum RPC (set to enable) |
-| `SCROLL_RPC_URL` | — | Scroll RPC (set to enable) |
+| `BASE_RPC_URL` | — | Base RPC (set to enable) |
 | `INK_RPC_URL` | — | Ink RPC (set to enable) |
-| `HYPEREVM_RPC_URL` | — | HyperEVM RPC (set to enable) |
+| `PLASMA_RPC_URL` | — | Plasma RPC (set to enable) |
 
 ## Add a chain
 
@@ -144,13 +144,13 @@ src/chronoblock/
 
 **Sync loop:** each chain gets an independent asyncio task that checks `MAX(block_number)` in its SQLite file, fetches the gap from the RPC in concurrent batches, inserts in a single transaction, and either loops immediately (catch-up) or sleeps for one observed block time (steady-state).
 
-**Block time is self-calibrating.** The service computes the average block interval from the last 50 stored blocks. If a chain changes its block time (e.g. Scroll 3s → 1s), the poll interval adjusts automatically — no config change or restart needed.
+**Block time is self-calibrating.** The service computes the average block interval from the last 50 stored blocks. If a chain changes its block time, the poll interval adjusts automatically — no config change or restart needed.
 
 **Gap-safety.** `fetch_block_timestamps` returns only the contiguous prefix starting at `from_block`. If block N is missing, everything up to N-1 is inserted and the syncer retries from N next cycle. The DB never has holes.
 
 ## Production notes
 
-- **Storage:** ~12 bytes/block. Ethereum mainnet (~22M blocks) = ~260 MB. HyperEVM (~30M blocks) = ~360 MB.
+- **Storage:** ~12 bytes/block. Ethereum mainnet (~22M blocks) = ~260 MB.
 - **Read latency:** single lookups are in-process SQLite B-tree lookups on mmap'd pages — sub-microsecond on warm cache. 10k-block batch in <10ms.
 - **SQLite tuning:** WAL mode, 64 MB page cache, 1 GB mmap, `WITHOUT ROWID` table, `busy_timeout` for deploy overlap safety, periodic WAL checkpointing.
 - **Graceful shutdown:** SIGINT/SIGTERM triggers the FastAPI lifespan shutdown — cancels all sync tasks, checkpoints WAL, closes DB handles.
