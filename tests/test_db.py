@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -179,6 +180,79 @@ class TestWarmCaches:
     def test_scans_chain_table(self):
         db.insert_blocks(CHAIN, [Block(1, 1000), Block(2, 2000)])
         db.warm_caches([CHAIN])
+
+
+class TestOpenErrorPaths:
+    def test_wal_mode_not_supported(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from chronoblock.errors import DataDirError
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = ("journal",)
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value = mock_cursor
+
+        monkeypatch.setattr("sqlite3.connect", lambda *a, **kw: mock_conn)
+
+        chain = Chain(id=88888, name="waltest", rpc="http://test.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=10)
+        with pytest.raises(DataDirError, match="WAL mode not supported"):
+            db._open(chain)
+
+        mock_conn.close.assert_called_once()
+
+    def test_exception_during_setup_closes_connection(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        call_count = 0
+
+        def flaky_execute(sql, *args):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                cursor = MagicMock()
+                cursor.fetchone.return_value = ("wal",)
+                return cursor
+            raise sqlite3.OperationalError("disk I/O error")
+
+        mock_conn = MagicMock()
+        mock_conn.execute = flaky_execute
+
+        monkeypatch.setattr("sqlite3.connect", lambda *a, **kw: mock_conn)
+
+        chain = Chain(id=77777, name="errortest", rpc="http://test.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=10)
+        with pytest.raises(sqlite3.OperationalError, match="disk I/O"):
+            db._open(chain)
+
+        mock_conn.close.assert_called_once()
+
+
+class TestIsHealthyFileMissing:
+    def test_returns_false_when_db_file_deleted(self):
+        db.insert_blocks(CHAIN, [Block(1, 1000)])
+        store = db._stores[CHAIN.id]
+        store.file_path.unlink()
+        assert db.is_healthy(CHAIN) is False
+
+
+class TestCloseAllErrorPaths:
+    def test_handles_close_failure(self):
+        db.insert_blocks(CHAIN, [Block(1, 1000)])
+        store = db._stores[CHAIN.id]
+        store.connection.close()
+
+        # connection is already closed, calling close_all will fail on
+        # PRAGMA optimize (already tested) AND on connection.close()
+        # Force a scenario where optimize succeeds but close fails
+        from unittest.mock import MagicMock
+
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value = None  # PRAGMA optimize succeeds
+        mock_conn.close.side_effect = sqlite3.ProgrammingError("already closed")
+        store.connection = mock_conn
+
+        db.close_all()
+        assert len(db._stores) == 0
 
 
 class TestGetManySql:

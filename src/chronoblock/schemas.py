@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
@@ -25,8 +24,8 @@ BLOCK_PARAM_RE = re.compile(r"^\d+$")
 class TimestampBatchRequest(BaseModel):
     model_config = ConfigDict(strict=True)
 
-    chain: Any = None
-    chain_id: Any = None
+    chain: str | None = None
+    chain_id: int | None = None
     blocks: list[int]
 
     @field_validator("blocks")
@@ -57,6 +56,9 @@ def map_validation_error(exc: ValidationError, request_id: str | None) -> JSONRe
     if msg.startswith("Value error, "):
         msg = msg[len("Value error, ") :]
 
+    if loc and loc[0] in ("chain", "chain_id"):
+        return error_response(400, "unknown_chain", "unknown chain", request_id)
+
     if loc and loc[0] == "blocks":
         if len(loc) >= 2 and isinstance(loc[1], int):
             val = first.get("input", "?")
@@ -70,9 +72,9 @@ def map_validation_error(exc: ValidationError, request_id: str | None) -> JSONRe
     return error_response(400, "invalid_blocks", "blocks must be a non-empty array", request_id)
 
 
-def resolve_chain(name: object = None, chain_id: object = None) -> Chain | None:
-    if isinstance(name, str) and name:
+def resolve_chain(name: str | None = None, chain_id: int | None = None) -> Chain | None:
+    if name:
         return config.CHAIN_BY_NAME.get(name.lower())
-    if isinstance(chain_id, int) and not isinstance(chain_id, bool):
+    if chain_id is not None:
         return config.CHAIN_BY_ID.get(chain_id)
     return None

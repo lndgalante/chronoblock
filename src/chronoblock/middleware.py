@@ -38,7 +38,7 @@ class RequestIdMiddleware:
         request_id = ""
         for name, value in scope.get("headers", []):
             if name == b"x-request-id":
-                request_id = value.decode("latin-1")
+                request_id = value.decode("latin-1")[:128]
                 break
         if not request_id:
             request_id = str(uuid.uuid4())

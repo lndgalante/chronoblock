@@ -301,6 +301,26 @@ class TestBatchLengthMismatch:
         assert blocks == []
 
 
+class TestSendResponseParsing:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_invalid_json_response(self):
+        respx.post("http://example.test").mock(
+            return_value=httpx.Response(200, content=b"not json at all", headers={"content-type": "application/json"})
+        )
+        with pytest.raises(RpcResponseError, match="invalid JSON"):
+            await get_latest_block_number(CHAIN)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_missing_result_key(self):
+        respx.post("http://example.test").mock(
+            return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1})
+        )
+        with pytest.raises(RpcResponseError, match="missing 'result' key"):
+            await get_latest_block_number(CHAIN)
+
+
 class TestIsRetryable:
     @pytest.mark.parametrize(
         "exc",

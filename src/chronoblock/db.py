@@ -11,7 +11,6 @@ Performance notes:
 
 from __future__ import annotations
 
-import contextlib
 import sqlite3
 import threading
 import time
@@ -250,10 +249,14 @@ def warm_caches(chains: list[Chain]) -> None:
 
 def close_all() -> None:
     global _data_dir_verified
-    for store in _stores.values():
-        with contextlib.suppress(Exception):
+    for chain_id, store in _stores.items():
+        try:
             store.connection.execute("PRAGMA optimize")
-        with contextlib.suppress(Exception):
+        except Exception as err:
+            log("warn", "PRAGMA optimize failed during shutdown", chain_id=chain_id, error=str(err))
+        try:
             store.connection.close()
+        except Exception as err:
+            log("warn", "connection close failed during shutdown", chain_id=chain_id, error=str(err))
     _stores.clear()
     _data_dir_verified = False
