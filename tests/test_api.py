@@ -73,6 +73,59 @@ class TestLifespan:
             mock_close_db.assert_called_once()
             mock_close_rpc.assert_called_once()
 
+    async def test_shutdown_tolerates_stop_all_failure(self):
+        from chronoblock.api import create_app, lifespan
+
+        app = create_app()
+
+        with (
+            patch("chronoblock.api.download_seed_data", new_callable=AsyncMock),
+            patch("chronoblock.api.start_all", new_callable=AsyncMock),
+            patch("chronoblock.api.warm_caches"),
+            patch("chronoblock.api.stop_all", new_callable=AsyncMock, side_effect=RuntimeError("stop boom")),
+            patch("chronoblock.api.close_all") as mock_close_db,
+            patch("chronoblock.api.close_client", new_callable=AsyncMock) as mock_close_rpc,
+        ):
+            async with lifespan(app):
+                pass
+
+            mock_close_db.assert_called_once()
+            mock_close_rpc.assert_called_once()
+
+    async def test_shutdown_tolerates_close_all_failure(self):
+        from chronoblock.api import create_app, lifespan
+
+        app = create_app()
+
+        with (
+            patch("chronoblock.api.download_seed_data", new_callable=AsyncMock),
+            patch("chronoblock.api.start_all", new_callable=AsyncMock),
+            patch("chronoblock.api.warm_caches"),
+            patch("chronoblock.api.stop_all", new_callable=AsyncMock),
+            patch("chronoblock.api.close_all", side_effect=RuntimeError("close_all boom")),
+            patch("chronoblock.api.close_client", new_callable=AsyncMock) as mock_close_rpc,
+        ):
+            async with lifespan(app):
+                pass
+
+            mock_close_rpc.assert_called_once()
+
+    async def test_shutdown_tolerates_close_client_failure(self):
+        from chronoblock.api import create_app, lifespan
+
+        app = create_app()
+
+        with (
+            patch("chronoblock.api.download_seed_data", new_callable=AsyncMock),
+            patch("chronoblock.api.start_all", new_callable=AsyncMock),
+            patch("chronoblock.api.warm_caches"),
+            patch("chronoblock.api.stop_all", new_callable=AsyncMock),
+            patch("chronoblock.api.close_all"),
+            patch("chronoblock.api.close_client", new_callable=AsyncMock, side_effect=RuntimeError("close_client boom")),
+        ):
+            async with lifespan(app):
+                pass
+
 
 # ── Happy-path tests ─────────────────────────────────────────────────
 

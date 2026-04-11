@@ -81,6 +81,23 @@ class TestLifecycle:
     @patch("chronoblock.syncer.config")
     @patch("chronoblock.syncer.observed_block_time_ms", return_value=1000.0)
     @patch("chronoblock.syncer.last_block", return_value=None)
+    async def test_stop_all_handles_timeout(self, mock_last, mock_bt, mock_config):
+        from chronoblock.syncer import _tasks, start_all, stop_all
+
+        mock_config.CHAINS = [CHAIN]
+        mock_config.settings = SimpleNamespace(sync_chunk_size=100)
+
+        await start_all()
+        assert len(_tasks) > 0
+
+        with patch("chronoblock.syncer.asyncio.wait_for", new_callable=AsyncMock, side_effect=TimeoutError):
+            await stop_all()
+
+        assert len(_tasks) == 0
+
+    @patch("chronoblock.syncer.config")
+    @patch("chronoblock.syncer.observed_block_time_ms", return_value=1000.0)
+    @patch("chronoblock.syncer.last_block", return_value=None)
     async def test_stop_all_cancels_tasks(self, mock_last, mock_bt, mock_config):
         from chronoblock.syncer import _tasks, start_all, stop_all
 
@@ -459,6 +476,22 @@ class TestSyncLoop:
 
 
 class TestCheckpointTimer:
+    async def test_logs_checkpoint_failure(self):
+        sleep_count = 0
+
+        async def limited_sleep(duration):
+            nonlocal sleep_count
+            sleep_count += 1
+            if sleep_count > 1:
+                raise asyncio.CancelledError()
+
+        with (
+            patch("asyncio.sleep", side_effect=limited_sleep),
+            patch("chronoblock.syncer.checkpoint_all", side_effect=RuntimeError("disk full")),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await _checkpoint_timer()
+
     async def test_calls_checkpoint_at_interval(self):
         sleep_count = 0
 

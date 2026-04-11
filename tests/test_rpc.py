@@ -11,7 +11,7 @@ import pytest
 import respx
 
 import chronoblock.rpc as rpc_module
-from chronoblock.errors import RpcRateLimitError, RpcResponseError, RpcServerError, RpcTransportError
+from chronoblock.errors import RpcError, RpcRateLimitError, RpcResponseError, RpcServerError, RpcTransportError
 from chronoblock.models import Block, Chain
 from chronoblock.rpc import close_client, fetch_block_timestamps, get_latest_block_number, is_retryable
 
@@ -322,6 +322,20 @@ class TestSendResponseParsing:
         )
         with pytest.raises(RpcResponseError, match="missing 'result' key"):
             await get_latest_block_number(CHAIN)
+
+
+class TestGetClientAfterShutdown:
+    async def test_raises_after_shutdown(self):
+        rpc_module._client_shut_down = True
+        with pytest.raises(RuntimeError, match="shut down"):
+            rpc_module._get_client()
+
+
+class TestSendFallbackRaise:
+    async def test_raises_when_retry_loop_empty(self):
+        """Line 288: defensive fallback when MAX_RETRIES makes loop body never execute."""
+        with patch.object(rpc_module, "MAX_RETRIES", -1), pytest.raises(RpcError, match="unreachable"):
+            await rpc_module._send(CHAIN, {"jsonrpc": "2.0", "method": "test", "id": 1}, is_batch=False)
 
 
 class TestIsRetryable:

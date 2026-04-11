@@ -64,6 +64,22 @@ class TestDownloadSeedData:
         assert not (data_dir / "_seed.tar.gz").exists()
 
     @respx.mock
+    @patch("chronoblock.seed.MAX_SEED_BYTES", 10)
+    @patch("chronoblock.seed.MAX_SEED_RETRIES", 0)
+    @patch("chronoblock.seed.config")
+    async def test_rejects_oversized_download(self, mock_config, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        mock_config.settings = SimpleNamespace(seed_url="http://example.test/seed.tar.gz", data_dir=str(data_dir))
+
+        respx.get("http://example.test/seed.tar.gz").mock(
+            return_value=httpx.Response(200, content=b"x" * 100),
+        )
+
+        with pytest.raises(RuntimeError, match="byte limit"):
+            await download_seed_data()
+
+    @respx.mock
     @patch("chronoblock.seed.config")
     async def test_cleans_up_temp_file_on_failure(self, mock_config, tmp_path):
         data_dir = tmp_path / "data"

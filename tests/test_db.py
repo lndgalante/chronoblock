@@ -255,6 +255,40 @@ class TestCloseAllErrorPaths:
         assert len(db._stores) == 0
 
 
+class TestOpenDoubleCheckedLocking:
+    def test_returns_existing_inside_lock(self):
+        """Second thread finds store already created when it enters the lock."""
+        import threading
+        import time
+        from pathlib import Path
+
+        chain2 = Chain(id=88888, name="locktest", rpc="http://test.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=10)
+
+        # Hold the lock so a background thread's _open blocks after passing the outer check.
+        db._open_lock.acquire()
+
+        result_holder: list = []
+        thread = threading.Thread(target=lambda: result_holder.append(db._open(chain2)))
+        thread.start()
+
+        # Give the thread time to pass the outer check and block on the lock.
+        time.sleep(0.05)
+
+        # While holding the lock, open the chain ourselves — this populates _stores.
+        file_path = Path(config.settings.data_dir) / f"{chain2.name}.db"
+        conn = sqlite3.connect(file_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("CREATE TABLE IF NOT EXISTS blocks (number INTEGER PRIMARY KEY, timestamp INTEGER NOT NULL)")
+        store = db._ChainDB(connection=conn, file_path=file_path)
+        db._stores[chain2.id] = store
+
+        # Release — background thread enters the lock, finds existing store, returns it.
+        db._open_lock.release()
+        thread.join(timeout=5)
+
+        assert result_holder[0] is store
+
+
 class TestGetManySql:
     def test_caches_sql_by_size(self):
         db.insert_blocks(CHAIN, [Block(1, 1000)])
