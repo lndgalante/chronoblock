@@ -16,7 +16,7 @@ from chronoblock.errors import ConfigError
 from chronoblock.log import log
 from chronoblock.models import Chain
 
-__all__ = ["Settings", "settings", "CHAINS", "CHAIN_BY_NAME", "CHAIN_BY_ID"]
+__all__ = ["Settings", "settings", "CHAINS", "CHAIN_BY_NAME", "CHAIN_BY_ID", "load_config", "validate_config"]
 
 # ── Settings ─────────────────────────────────────────────────────────
 
@@ -108,7 +108,7 @@ def _build_chains(settings: Settings) -> list[Chain]:
 # ── Validation ───────────────────────────────────────────────────────
 
 
-def _validate(settings: Settings, chains: list[Chain]) -> None:
+def validate_config(settings: Settings, chains: list[Chain]) -> None:
     errors: list[str] = []
 
     if not (1 <= settings.port <= 65535):
@@ -148,9 +148,20 @@ def _validate(settings: Settings, chains: list[Chain]) -> None:
 
 # ── Module-level singletons ──────────────────────────────────────────
 
-settings = Settings()
-CHAINS = _build_chains(settings)
-_validate(settings, CHAINS)
+settings: Settings
+CHAINS: list[Chain]
+CHAIN_BY_NAME: dict[str, Chain]
+CHAIN_BY_ID: dict[int, Chain]
 
-CHAIN_BY_NAME: dict[str, Chain] = {c.name: c for c in CHAINS}
-CHAIN_BY_ID: dict[int, Chain] = {c.id: c for c in CHAINS}
+
+def load_config() -> None:
+    """Initialize module-level config singletons. Called automatically on import."""
+    global settings, CHAINS, CHAIN_BY_NAME, CHAIN_BY_ID
+    settings = Settings()
+    CHAINS = _build_chains(settings)
+    validate_config(settings, CHAINS)
+    CHAIN_BY_NAME = {c.name: c for c in CHAINS}
+    CHAIN_BY_ID = {c.id: c for c in CHAINS}
+
+
+load_config()

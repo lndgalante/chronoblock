@@ -8,29 +8,29 @@ from pathlib import Path
 
 import httpx
 
-from chronoblock.config import settings
+from chronoblock import config
 from chronoblock.log import log
 
 __all__ = ["download_seed_data"]
 
 
 async def download_seed_data() -> None:
-    if not settings.seed_url:
+    if not config.settings.seed_url:
         return
 
-    data_dir = Path(settings.data_dir)
+    data_dir = Path(config.settings.data_dir)
     if any(data_dir.glob("*.db")):
         log("info", "seed skipped: databases already exist")
         return
 
-    log("info", "downloading seed data", url=settings.seed_url)
+    log("info", "downloading seed data", url=config.settings.seed_url)
     data_dir.mkdir(parents=True, exist_ok=True)
 
     tmp_path = data_dir / "_seed.tar.gz"
     try:
         async with (
             httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client,
-            client.stream("GET", settings.seed_url, follow_redirects=True) as resp,
+            client.stream("GET", config.settings.seed_url, follow_redirects=True) as resp,
         ):
             resp.raise_for_status()
             with tmp_path.open("wb") as f:

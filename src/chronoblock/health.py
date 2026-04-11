@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from chronoblock.config import settings
+from chronoblock import config
 from chronoblock.syncer import SyncState
 
 __all__ = ["INITIAL_SYNC_GRACE_SECS", "should_degrade_chain"]
@@ -23,7 +23,7 @@ def should_degrade_chain(sync: SyncState, now: float) -> str | None:
 
     lag_blocks = sync.latest_chain_block - sync.last_synced_block
     lag_secs = (lag_blocks * sync.observed_block_time_ms) / 1000
-    if lag_secs > settings.health_max_lag_secs:
+    if lag_secs > config.settings.health_max_lag_secs:
         return f"{lag_blocks} blocks behind (~{round(lag_secs)}s)"
 
     return None

@@ -11,7 +11,7 @@ import respx
 
 from chronoblock.errors import RpcRateLimitError, RpcResponseError, RpcServerError, RpcTransportError
 from chronoblock.models import Block, Chain
-from chronoblock.rpc import _is_retryable, close_client, fetch_block_timestamps, get_latest_block_number
+from chronoblock.rpc import close_client, fetch_block_timestamps, get_latest_block_number, is_retryable
 
 CHAIN = Chain(
     id=1,
@@ -124,7 +124,7 @@ class TestIsRetryable:
         ],
     )
     def test_retryable_errors(self, exc):
-        assert _is_retryable(exc) is True
+        assert is_retryable(exc) is True
 
     @pytest.mark.parametrize(
         "exc",
@@ -136,4 +136,4 @@ class TestIsRetryable:
         ],
     )
     def test_non_retryable_errors(self, exc):
-        assert _is_retryable(exc) is False
+        assert is_retryable(exc) is False

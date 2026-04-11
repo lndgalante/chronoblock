@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import traceback
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import ValidationError
 
-from chronoblock.config import CHAIN_BY_ID, CHAIN_BY_NAME, CHAINS, settings
+from chronoblock import config
 from chronoblock.db import close_all, warm_caches
 from chronoblock.dependencies import (
     BlockCountFn,
@@ -35,76 +33,18 @@ from chronoblock.middleware import (
     RequestLoggingMiddleware,
     SecureHeadersMiddleware,
 )
-from chronoblock.models import Chain
 from chronoblock.rpc import close_client
+from chronoblock.schemas import (
+    BLOCK_PARAM_RE,
+    TimestampBatchRequest,
+    error_response,
+    map_validation_error,
+    resolve_chain,
+)
 from chronoblock.seed import download_seed_data
 from chronoblock.syncer import start_all, stop_all
 
 __all__ = ["create_app"]
-
-BLOCK_PARAM_RE = re.compile(r"^\d+$")
-
-
-# ── Request model ───────────────────────────────────────────────────
-
-
-class TimestampBatchRequest(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    chain: Any = None
-    chain_id: Any = None
-    blocks: list[int]
-
-    @field_validator("blocks")
-    @classmethod
-    def validate_blocks(cls, v: list[int]) -> list[int]:
-        if not v:
-            raise ValueError("blocks must be a non-empty array")
-        if len(v) > 10_000:
-            raise ValueError("max 10,000 blocks per request")
-        for i, b in enumerate(v):
-            if b < 0 or b > 2**53 - 1:
-                raise ValueError(f"invalid block number at index {i}: {b}")
-        return v
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
-def _error_response(status: int, code: str, message: str, request_id: str | None = None) -> JSONResponse:
-    return JSONResponse(
-        status_code=status,
-        content={"error": code, "message": message, "request_id": request_id},
-    )
-
-
-def _map_validation_error(exc: ValidationError, request_id: str | None) -> JSONResponse:
-    first = exc.errors()[0]
-    loc = first.get("loc", ())
-    msg: str = first.get("msg", "validation error")
-
-    if msg.startswith("Value error, "):
-        msg = msg[len("Value error, ") :]
-
-    if loc and loc[0] == "blocks":
-        if len(loc) >= 2 and isinstance(loc[1], int):
-            val = first.get("input", "?")
-            return _error_response(
-                400, "invalid_block_number", f"invalid block number at index {loc[1]}: {val}", request_id
-            )
-        if "block number at index" in msg:
-            return _error_response(400, "invalid_block_number", msg, request_id)
-        return _error_response(400, "invalid_blocks", msg, request_id)
-
-    return _error_response(400, "invalid_blocks", "blocks must be a non-empty array", request_id)
-
-
-def _resolve_chain(name: object = None, chain_id: object = None) -> Chain | None:
-    if isinstance(name, str) and name:
-        return CHAIN_BY_NAME.get(name.lower())
-    if isinstance(chain_id, int) and not isinstance(chain_id, bool):
-        return CHAIN_BY_ID.get(chain_id)
-    return None
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────
@@ -124,11 +64,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         log("error", "seed failed, continuing without seed data", error=str(err))
     try:
         await start_all()
-        await asyncio.to_thread(warm_caches, CHAINS)
+        await asyncio.to_thread(warm_caches, config.CHAINS)
     except Exception:
         await _shutdown()
         raise
-    log("info", f"listening on :{settings.port}", chains=[c.name for c in CHAINS])
+    log("info", f"listening on :{config.settings.port}", chains=[c.name for c in config.CHAINS])
     try:
         yield
     finally:
@@ -163,7 +103,7 @@ def create_app() -> FastAPI:
             path=request.url.path,
             request_id=request_id,
         )
-        return _error_response(500, "internal_error", "internal server error", request_id)
+        return error_response(500, "internal_error", "internal server error", request_id)
 
     # ── Health ───────────────────────────────────────────────────────
 
@@ -176,9 +116,9 @@ def create_app() -> FastAPI:
         degraded: list[str] = []
         now = fn_now()
 
-        healthy_results = await asyncio.gather(*[asyncio.to_thread(fn_is_healthy, ch) for ch in CHAINS])
+        healthy_results = await asyncio.gather(*[asyncio.to_thread(fn_is_healthy, ch) for ch in config.CHAINS])
 
-        for ch, healthy in zip(CHAINS, healthy_results, strict=True):
+        for ch, healthy in zip(config.CHAINS, healthy_results, strict=True):
             if not healthy:
                 degraded.append(f"{ch.name}: db unreadable")
                 continue
@@ -202,24 +142,24 @@ def create_app() -> FastAPI:
 
         content_type = request.headers.get("content-type", "")
         if content_type.split(";")[0].strip().lower() != "application/json":
-            return _error_response(415, "unsupported_media_type", "Content-Type must be application/json", request_id)
+            return error_response(415, "unsupported_media_type", "Content-Type must be application/json", request_id)
 
         try:
             body = await request.json()
         except Exception:
-            return _error_response(400, "invalid_json", "invalid JSON", request_id)
+            return error_response(400, "invalid_json", "invalid JSON", request_id)
 
         if not isinstance(body, dict):
-            return _error_response(400, "invalid_json", "invalid JSON", request_id)
+            return error_response(400, "invalid_json", "invalid JSON", request_id)
 
         try:
             req = TimestampBatchRequest.model_validate(body)
         except ValidationError as exc:
-            return _map_validation_error(exc, request_id)
+            return map_validation_error(exc, request_id)
 
-        chain = _resolve_chain(req.chain, req.chain_id)
+        chain = resolve_chain(req.chain, req.chain_id)
         if not chain:
-            return _error_response(400, "unknown_chain", "unknown chain", request_id)
+            return error_response(400, "unknown_chain", "unknown chain", request_id)
 
         timestamps = await asyncio.to_thread(fn_get_timestamps, chain, req.blocks)
         results = {str(bn): ts for bn, ts in zip(req.blocks, timestamps, strict=True)}
@@ -235,21 +175,21 @@ def create_app() -> FastAPI:
         fn_get_timestamps: GetTimestampsFn = Depends(dep_get_timestamps),
         fn_get_sync_state: GetSyncStateFn = Depends(dep_get_sync_state),
     ) -> JSONResponse:
-        chain = CHAIN_BY_NAME.get(chain_name.lower())
+        chain = config.CHAIN_BY_NAME.get(chain_name.lower())
         if not chain:
-            return _error_response(400, "unknown_chain", "unknown chain")
+            return error_response(400, "unknown_chain", "unknown chain")
 
         if not BLOCK_PARAM_RE.match(block):
-            return _error_response(400, "invalid_block_number", "invalid block number")
+            return error_response(400, "invalid_block_number", "invalid block number")
 
         bn = int(block)
         if bn > 2**53 - 1:
-            return _error_response(400, "invalid_block_number", "invalid block number")
+            return error_response(400, "invalid_block_number", "invalid block number")
 
         timestamps = await asyncio.to_thread(fn_get_timestamps, chain, [bn])
         ts = timestamps[0]
         if ts is None:
-            return _error_response(404, "not_found", "block not found")
+            return error_response(404, "not_found", "block not found")
 
         sync = fn_get_sync_state(chain)
         finalized = sync.latest_chain_block is not None and bn <= sync.latest_chain_block - chain.finality_blocks
@@ -267,10 +207,10 @@ def create_app() -> FastAPI:
         fn_get_sync_state: GetSyncStateFn = Depends(dep_get_sync_state),
         fn_block_count: BlockCountFn = Depends(dep_block_count),
     ) -> JSONResponse:
-        counts = await asyncio.gather(*[asyncio.to_thread(fn_block_count, ch) for ch in CHAINS])
+        counts = await asyncio.gather(*[asyncio.to_thread(fn_block_count, ch) for ch in config.CHAINS])
 
         chains = []
-        for ch, count in zip(CHAINS, counts, strict=True):
+        for ch, count in zip(config.CHAINS, counts, strict=True):
             sync = fn_get_sync_state(ch)
             lag_blocks = (
                 sync.latest_chain_block - sync.last_synced_block

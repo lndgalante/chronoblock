@@ -17,7 +17,7 @@ import threading
 import time
 from pathlib import Path
 
-from chronoblock.config import settings
+from chronoblock import config
 from chronoblock.errors import DataDirError
 from chronoblock.log import log
 from chronoblock.models import Block, Chain
@@ -46,13 +46,13 @@ def _ensure_data_dir() -> None:
     if _data_dir_verified:
         return
     try:
-        data_dir = Path(settings.data_dir)
+        data_dir = Path(config.settings.data_dir)
         data_dir.mkdir(parents=True, exist_ok=True)
         test_path = data_dir / ".write_test"
         test_path.write_text("")
         test_path.unlink()
     except OSError as err:
-        raise DataDirError(f'data directory "{settings.data_dir}" is not writable: {err}') from err
+        raise DataDirError(f'data directory "{config.settings.data_dir}" is not writable: {err}') from err
     _data_dir_verified = True
 
 
@@ -91,7 +91,7 @@ def _open(chain: Chain) -> _ChainDB:
         if existing is not None:
             return existing
 
-        file_path = Path(settings.data_dir) / f"{chain.name}.db"
+        file_path = Path(config.settings.data_dir) / f"{chain.name}.db"
         conn = sqlite3.connect(file_path, check_same_thread=False)
 
         try:

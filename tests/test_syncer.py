@@ -61,7 +61,7 @@ class TestSyncOnce:
     def setup_state(self):
         _sync_states[CHAIN.id] = SyncState()
 
-    @patch("chronoblock.syncer.settings", SimpleNamespace(sync_chunk_size=100))
+    @patch("chronoblock.syncer.config", SimpleNamespace(settings=SimpleNamespace(sync_chunk_size=100)))
     @patch("chronoblock.syncer.insert_blocks")
     @patch("chronoblock.syncer.fetch_block_timestamps", new_callable=AsyncMock)
     @patch("chronoblock.syncer.get_latest_block_number", new_callable=AsyncMock)
@@ -73,7 +73,7 @@ class TestSyncOnce:
 
         mock_latest.assert_called_once_with(CHAIN)
 
-    @patch("chronoblock.syncer.settings", SimpleNamespace(sync_chunk_size=100))
+    @patch("chronoblock.syncer.config", SimpleNamespace(settings=SimpleNamespace(sync_chunk_size=100)))
     @patch("chronoblock.syncer.insert_blocks")
     @patch("chronoblock.syncer.fetch_block_timestamps", new_callable=AsyncMock)
     @patch("chronoblock.syncer.get_latest_block_number", new_callable=AsyncMock)
@@ -84,7 +84,7 @@ class TestSyncOnce:
 
         mock_latest.assert_not_called()
 
-    @patch("chronoblock.syncer.settings", SimpleNamespace(sync_chunk_size=100))
+    @patch("chronoblock.syncer.config", SimpleNamespace(settings=SimpleNamespace(sync_chunk_size=100)))
     @patch("chronoblock.syncer.insert_blocks")
     @patch("chronoblock.syncer.fetch_block_timestamps", new_callable=AsyncMock)
     @patch("chronoblock.syncer.get_latest_block_number", new_callable=AsyncMock)
@@ -97,7 +97,7 @@ class TestSyncOnce:
         assert catching is False
         assert latest == 5
 
-    @patch("chronoblock.syncer.settings", SimpleNamespace(sync_chunk_size=3))
+    @patch("chronoblock.syncer.config", SimpleNamespace(settings=SimpleNamespace(sync_chunk_size=3)))
     @patch("chronoblock.syncer.insert_blocks")
     @patch("chronoblock.syncer.fetch_block_timestamps", new_callable=AsyncMock)
     @patch("chronoblock.syncer.get_latest_block_number", new_callable=AsyncMock)
@@ -110,7 +110,7 @@ class TestSyncOnce:
         assert catching is True
         assert latest == 50
 
-    @patch("chronoblock.syncer.settings", SimpleNamespace(sync_chunk_size=100))
+    @patch("chronoblock.syncer.config", SimpleNamespace(settings=SimpleNamespace(sync_chunk_size=100)))
     @patch("chronoblock.syncer.insert_blocks")
     @patch("chronoblock.syncer.fetch_block_timestamps", new_callable=AsyncMock)
     @patch("chronoblock.syncer.get_latest_block_number", new_callable=AsyncMock)
@@ -127,7 +127,7 @@ class TestSyncOnce:
         assert state.syncs_performed == 1
         assert state.blocks_ingested == 5
 
-    @patch("chronoblock.syncer.settings", SimpleNamespace(sync_chunk_size=100))
+    @patch("chronoblock.syncer.config", SimpleNamespace(settings=SimpleNamespace(sync_chunk_size=100)))
     @patch("chronoblock.syncer.insert_blocks")
     @patch("chronoblock.syncer.fetch_block_timestamps", new_callable=AsyncMock)
     @patch("chronoblock.syncer.get_latest_block_number", new_callable=AsyncMock)
@@ -138,7 +138,7 @@ class TestSyncOnce:
         with pytest.raises(RpcResponseError, match="got 0 blocks"):
             await _sync_once(CHAIN, cached_latest=None)
 
-    @patch("chronoblock.syncer.settings", SimpleNamespace(sync_chunk_size=100))
+    @patch("chronoblock.syncer.config", SimpleNamespace(settings=SimpleNamespace(sync_chunk_size=100)))
     @patch("chronoblock.syncer.insert_blocks")
     @patch("chronoblock.syncer.fetch_block_timestamps", new_callable=AsyncMock)
     @patch("chronoblock.syncer.get_latest_block_number", new_callable=AsyncMock)
@@ -151,7 +151,7 @@ class TestSyncOnce:
         assert catching is False
         mock_fetch.assert_not_called()
 
-    @patch("chronoblock.syncer.settings", SimpleNamespace(sync_chunk_size=100))
+    @patch("chronoblock.syncer.config", SimpleNamespace(settings=SimpleNamespace(sync_chunk_size=100)))
     @patch("chronoblock.syncer.insert_blocks")
     @patch("chronoblock.syncer.fetch_block_timestamps", new_callable=AsyncMock)
     @patch("chronoblock.syncer.get_latest_block_number", new_callable=AsyncMock)

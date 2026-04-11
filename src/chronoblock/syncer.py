@@ -20,7 +20,7 @@ import random
 import time
 from dataclasses import dataclass, field
 
-from chronoblock.config import CHAINS, settings
+from chronoblock import config
 from chronoblock.db import (
     checkpoint_all,
     insert_blocks,
@@ -67,7 +67,7 @@ def get_sync_state(chain: Chain) -> SyncState:
 
 
 async def start_all() -> None:
-    for chain in CHAINS:
+    for chain in config.CHAINS:
         _sync_states[chain.id] = SyncState(
             last_synced_block=await asyncio.to_thread(last_block, chain),
             observed_block_time_ms=await asyncio.to_thread(observed_block_time_ms, chain),
@@ -75,7 +75,7 @@ async def start_all() -> None:
         _tasks.append(asyncio.create_task(_sync_loop(chain), name=f"sync-{chain.name}"))
 
     _tasks.append(asyncio.create_task(_checkpoint_timer(), name="checkpoint-timer"))
-    log("info", f"started {len(CHAINS)} sync workers", chain="all")
+    log("info", f"started {len(config.CHAINS)} sync workers", chain="all")
 
 
 async def stop_all() -> None:
@@ -146,7 +146,7 @@ async def _sync_once(chain: Chain, cached_latest: int | None) -> tuple[bool, int
         return False, latest
 
     gap = latest - from_block + 1
-    to_block = min(from_block + settings.sync_chunk_size - 1, latest)
+    to_block = min(from_block + config.settings.sync_chunk_size - 1, latest)
 
     log("info", f"syncing {from_block}→{to_block} ({gap:,} behind)", chain=chain.name)
 

@@ -24,7 +24,7 @@ from chronoblock.errors import (
 from chronoblock.log import log
 from chronoblock.models import Block, Chain
 
-__all__ = ["get_latest_block_number", "fetch_block_timestamps", "close_client"]
+__all__ = ["get_latest_block_number", "fetch_block_timestamps", "close_client", "is_retryable"]
 
 MAX_RETRIES = 5
 TIMEOUT = httpx.Timeout(30.0)
@@ -198,7 +198,7 @@ async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Blo
     return blocks
 
 
-def _is_retryable(err: Exception) -> bool:
+def is_retryable(err: Exception) -> bool:
     return isinstance(
         err,
         (
@@ -273,7 +273,7 @@ async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *,
             raise
         except Exception as err:
             last_err = err
-            if attempt == MAX_RETRIES or not _is_retryable(err):
+            if attempt == MAX_RETRIES or not is_retryable(err):
                 raise
             log("warn", f"retry {attempt + 1}/{MAX_RETRIES}", chain=chain.name, error=str(err))
             await asyncio.sleep(min(1.0 * 2**attempt, 30.0) * (0.5 + random.random()))

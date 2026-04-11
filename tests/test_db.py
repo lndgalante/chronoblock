@@ -22,7 +22,7 @@ CHAIN = Chain(
 @pytest.fixture(autouse=True)
 def isolated_db(tmp_path, monkeypatch):
     """Each test gets its own data directory and clean connection pool."""
-    monkeypatch.setattr(db, "settings", SimpleNamespace(data_dir=str(tmp_path)))
+    monkeypatch.setattr(db.config, "settings", SimpleNamespace(data_dir=str(tmp_path)))
     yield
     db.close_all()
 
