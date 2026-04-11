@@ -18,6 +18,6 @@ class TestMapValidationError:
         assert response.body is not None
         import json
 
-        body = json.loads(response.body)
+        body = json.loads(bytes(response.body))
         assert body["error"] == "invalid_blocks"
         assert body["request_id"] == "req-123"

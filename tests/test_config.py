@@ -9,8 +9,8 @@ from chronoblock.errors import ConfigError
 from chronoblock.models import Chain
 
 
-def _chain(**overrides) -> Chain:
-    defaults = {
+def _chain(**overrides: int | str) -> Chain:
+    defaults: dict[str, int | str] = {
         "id": 1,
         "name": "testchain",
         "rpc": "http://test.test",
@@ -19,7 +19,7 @@ def _chain(**overrides) -> Chain:
         "finality_blocks": 64,
     }
     defaults.update(overrides)
-    return Chain(**defaults)
+    return Chain(**defaults)  # type: ignore[arg-type]
 
 
 class TestValidate:

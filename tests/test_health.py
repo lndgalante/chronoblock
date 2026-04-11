@@ -41,7 +41,7 @@ class TestShouldDegradeChain:
         now = 1_000_000.0
         started = now - INITIAL_SYNC_GRACE_SECS - 1
         result = should_degrade_chain(_state(now, started_at=started), now)
-        assert "grace period" in result
+        assert result is not None and "grace period" in result
 
     def test_healthy_when_caught_up(self):
         now = 1_000_000.0
@@ -60,7 +60,7 @@ class TestShouldDegradeChain:
             observed_block_time_ms=1_000.0,
         )
         result = should_degrade_chain(sync, now)
-        assert "121 blocks behind" in result
+        assert result is not None and "121 blocks behind" in result
 
     @patch("chronoblock.health.config")
     def test_healthy_when_lag_within_budget(self, mock_config):

@@ -55,7 +55,7 @@ class _RateLimiter:
 
     __slots__ = ("_rate", "_next", "_lock")
 
-    def __init__(self, rate: float):
+    def __init__(self, rate: float) -> None:
         self._rate = rate
         self._next = 0.0
         self._lock = asyncio.Lock()

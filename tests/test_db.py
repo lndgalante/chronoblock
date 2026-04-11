@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from chronoblock import db
+from chronoblock import config, db
 from chronoblock.models import Block, Chain
 
 CHAIN = Chain(
@@ -23,7 +23,7 @@ CHAIN = Chain(
 @pytest.fixture(autouse=True)
 def isolated_db(tmp_path, monkeypatch):
     """Each test gets its own data directory and clean connection pool."""
-    monkeypatch.setattr(db.config, "settings", SimpleNamespace(data_dir=str(tmp_path)))
+    monkeypatch.setattr(config, "settings", SimpleNamespace(data_dir=str(tmp_path)))
     yield
     db.close_all()
 
@@ -125,7 +125,7 @@ class TestEnsureDataDir:
         readonly.mkdir()
         readonly.chmod(0o444)
         target = str(readonly / "subdir")
-        monkeypatch.setattr(db.config, "settings", SimpleNamespace(data_dir=target))
+        monkeypatch.setattr(config, "settings", SimpleNamespace(data_dir=target))
         from chronoblock.errors import DataDirError
 
         try:
