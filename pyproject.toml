@@ -59,6 +59,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/chronoblock/main.py" = ["T201"]  # print() justified: error path before logger is available
+"tests/stress.py" = ["T201"]  # CLI script, print is the output mechanism
 
 [tool.ruff.format]
 quote-style = "double"

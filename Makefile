@@ -1,4 +1,4 @@
-.PHONY: start test cov lint deploy logs
+.PHONY: start test cov lint deploy logs stress
 
 start:
 	uv run python -m chronoblock.main
@@ -17,3 +17,6 @@ deploy:
 
 logs:
 	railway logs
+
+stress:
+	uv run python tests/stress.py
