@@ -122,3 +122,50 @@ class TestIsHealthy:
         db.insert_blocks(CHAIN, [Block(1, 1000)])
         db._stores[CHAIN.id].connection.close()
         assert db.is_healthy(CHAIN) is False
+
+
+class TestCloseAll:
+    def test_resets_verified_flag_and_clears_stores(self):
+        db.insert_blocks(CHAIN, [Block(1, 1000)])
+        assert CHAIN.id in db._stores
+        assert db._data_dir_verified is True
+
+        db.close_all()
+
+        assert len(db._stores) == 0
+        assert db._data_dir_verified is False
+
+    def test_can_reopen_after_close(self):
+        db.insert_blocks(CHAIN, [Block(1, 1000)])
+        db.close_all()
+
+        db.insert_blocks(CHAIN, [Block(2, 2000)])
+        assert db.get_timestamps(CHAIN, [2]) == [2000]
+
+
+class TestCheckpointAll:
+    def test_handles_closed_connection(self):
+        db.insert_blocks(CHAIN, [Block(1, 1000)])
+        db._stores[CHAIN.id].connection.close()
+        db.checkpoint_all()
+
+
+class TestWarmCaches:
+    def test_scans_chain_table(self):
+        db.insert_blocks(CHAIN, [Block(1, 1000), Block(2, 2000)])
+        db.warm_caches([CHAIN])
+
+
+class TestGetManySql:
+    def test_caches_sql_by_size(self):
+        db.insert_blocks(CHAIN, [Block(1, 1000)])
+        store = db._stores[CHAIN.id]
+        sql_a = store.get_many_sql(5)
+        sql_b = store.get_many_sql(5)
+        assert sql_a is sql_b
+
+    def test_generates_correct_placeholders(self):
+        db.insert_blocks(CHAIN, [Block(1, 1000)])
+        store = db._stores[CHAIN.id]
+        assert store.get_many_sql(3).count("?") == 3
+        assert store.get_many_sql(10).count("?") == 10
