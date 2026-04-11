@@ -94,6 +94,7 @@ async def stop_all() -> None:
     except TimeoutError:
         log("warn", "shutdown timed out, some tasks did not exit cleanly", timeout=SHUTDOWN_TIMEOUT)
     _tasks.clear()
+    _sync_states.clear()
     await asyncio.to_thread(checkpoint_all)
 
 

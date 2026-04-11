@@ -51,9 +51,18 @@ __all__ = ["create_app"]
 
 
 async def _shutdown() -> None:
-    await stop_all()
-    await asyncio.to_thread(close_all)
-    await close_client()
+    try:
+        await stop_all()
+    except Exception as err:
+        log("error", "stop_all failed during shutdown", error=str(err))
+    try:
+        await asyncio.to_thread(close_all)
+    except Exception as err:
+        log("error", "close_all failed during shutdown", error=str(err))
+    try:
+        await close_client()
+    except Exception as err:
+        log("error", "close_client failed during shutdown", error=str(err))
 
 
 @asynccontextmanager

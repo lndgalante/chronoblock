@@ -208,7 +208,9 @@ def insert_blocks(chain: Chain, blocks: list[Block]) -> None:
 
 
 def checkpoint_all() -> None:
-    for chain_id, store in _stores.items():
+    with _open_lock:
+        stores = list(_stores.items())
+    for chain_id, store in stores:
         for pragma in ("PRAGMA optimize", "PRAGMA wal_checkpoint(PASSIVE)", "PRAGMA wal_checkpoint(TRUNCATE)"):
             try:
                 store.connection.execute(pragma)

@@ -14,6 +14,7 @@ from chronoblock.log import log
 __all__ = ["download_seed_data"]
 
 MAX_SEED_RETRIES = 2
+MAX_SEED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 
 
 async def download_seed_data() -> None:
@@ -44,8 +45,12 @@ async def download_seed_data() -> None:
                     client.stream("GET", config.settings.seed_url, follow_redirects=True) as resp,
                 ):
                     resp.raise_for_status()
+                    downloaded = 0
                     with tmp_path.open("wb") as f:
                         async for chunk in resp.aiter_bytes(chunk_size=65536):
+                            downloaded += len(chunk)
+                            if downloaded > MAX_SEED_BYTES:
+                                raise RuntimeError(f"seed download exceeds {MAX_SEED_BYTES} byte limit")
                             f.write(chunk)
 
                 count = await asyncio.to_thread(_extract)
