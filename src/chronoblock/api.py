@@ -61,7 +61,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     try:
         await download_seed_data()
     except Exception as err:
-        log("error", "seed failed, continuing without seed data", error=str(err))
+        log("error", "seed failed, continuing without seed data", error=str(err), traceback=traceback.format_exc())
     try:
         await start_all()
         await asyncio.to_thread(warm_caches, config.CHAINS)
@@ -146,7 +146,7 @@ def create_app() -> FastAPI:
 
         try:
             body = await request.json()
-        except Exception:
+        except (ValueError, TypeError):
             return error_response(400, "invalid_json", "invalid JSON", request_id)
 
         if not isinstance(body, dict):

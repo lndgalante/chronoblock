@@ -222,7 +222,7 @@ async def _rpc_batch(chain: Chain, payload: list[dict[str, Any]]) -> list[dict[s
     if not isinstance(result, list):
         raise RpcResponseError(chain.name, "expected array from batch RPC")
     if len(result) != len(payload):
-        log("warn", f"batch response length mismatch: expected {len(payload)}, got {len(result)}", chain=chain.name)
+        raise RpcResponseError(chain.name, f"batch response length mismatch: expected {len(payload)}, got {len(result)}")
     return result
 
 
@@ -260,13 +260,18 @@ async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *,
             if not response.is_success:
                 raise RpcResponseError(chain.name, f"HTTP {response.status_code}: {response.text[:200]}")
 
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError as err:
+                raise RpcResponseError(chain.name, f"invalid JSON in response: {err}") from err
 
             if is_batch:
                 return data
             if data.get("error"):
                 err_obj = data["error"]
                 raise RpcResponseError(chain.name, f"RPC error: {err_obj.get('message', err_obj)}")
+            if "result" not in data:
+                raise RpcResponseError(chain.name, "malformed response: missing 'result' key")
             return data["result"]
 
         except asyncio.CancelledError:

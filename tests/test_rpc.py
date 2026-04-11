@@ -288,16 +288,17 @@ class TestFetchBatchErrorPaths:
 class TestBatchLengthMismatch:
     @respx.mock
     @pytest.mark.asyncio
-    async def test_warns_on_length_mismatch(self):
-        """When batch response has fewer items than payload, log a warning but still return."""
+    async def test_raises_on_length_mismatch(self):
+        """When batch response has fewer items than payload, the batch fails with RpcResponseError."""
         response = [
             {"jsonrpc": "2.0", "id": 0, "result": {"number": "0x0", "timestamp": "0x3e8"}},
         ]
         respx.post("http://example.test").mock(return_value=httpx.Response(200, json=response))
 
         chain = Chain(id=1, name="ethereum", rpc="http://example.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=64)
+        # Mismatch is now a hard error — the batch fails and no blocks are returned.
         blocks = await fetch_block_timestamps(chain, 0, 1)
-        assert blocks == [Block(0, 1000)]
+        assert blocks == []
 
 
 class TestIsRetryable:
