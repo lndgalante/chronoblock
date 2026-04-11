@@ -190,8 +190,7 @@ async def _fetch_batch(chain: Chain, from_block: int, to_block: int) -> list[Blo
             log("warn", f"batch RPC errors: {count}/{len(data)} failed", chain=chain.name, error=msg)
 
         rate_limited = sum(
-            count for msg, count in error_counts.items()
-            if any(kw in msg.lower() for kw in _RATE_LIMIT_KEYWORDS)
+            count for msg, count in error_counts.items() if any(kw in msg.lower() for kw in _RATE_LIMIT_KEYWORDS)
         )
         if rate_limited > len(data) // 2:
             raise RpcRateLimitError(chain.name)

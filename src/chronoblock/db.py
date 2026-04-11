@@ -12,10 +12,10 @@ Performance notes:
 from __future__ import annotations
 
 import contextlib
-import os
 import sqlite3
 import threading
 import time
+from pathlib import Path
 
 from chronoblock.config import settings
 from chronoblock.errors import DataDirError
@@ -46,11 +46,11 @@ def _ensure_data_dir() -> None:
     if _data_dir_verified:
         return
     try:
-        os.makedirs(settings.data_dir, exist_ok=True)
-        test_path = os.path.join(settings.data_dir, ".write_test")
-        with open(test_path, "w") as f:
-            f.write("")
-        os.remove(test_path)
+        data_dir = Path(settings.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        test_path = data_dir / ".write_test"
+        test_path.write_text("")
+        test_path.unlink()
     except OSError as err:
         raise DataDirError(f'data directory "{settings.data_dir}" is not writable: {err}') from err
     _data_dir_verified = True
@@ -59,7 +59,7 @@ def _ensure_data_dir() -> None:
 class _ChainDB:
     __slots__ = ("connection", "file_path", "cached_count", "cached_count_at", "_get_many_sql")
 
-    def __init__(self, connection: sqlite3.Connection, file_path: str) -> None:
+    def __init__(self, connection: sqlite3.Connection, file_path: Path) -> None:
         self.connection = connection
         self.file_path = file_path
         self.cached_count = 0
@@ -91,7 +91,7 @@ def _open(chain: Chain) -> _ChainDB:
         if existing is not None:
             return existing
 
-        file_path = os.path.join(settings.data_dir, f"{chain.name}.db")
+        file_path = Path(settings.data_dir) / f"{chain.name}.db"
         conn = sqlite3.connect(file_path, check_same_thread=False)
 
         try:
@@ -220,7 +220,7 @@ def checkpoint_all() -> None:
 def is_healthy(chain: Chain) -> bool:
     try:
         store = _open(chain)
-        if not os.path.exists(store.file_path):
+        if not store.file_path.exists():
             return False
         store.connection.execute("SELECT COUNT(*) FROM blocks").fetchone()
         return True

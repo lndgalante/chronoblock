@@ -7,13 +7,13 @@ so deploy pipelines fail fast.
 from __future__ import annotations
 
 import os
-import sys
 from typing import TypedDict
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from chronoblock.errors import ConfigError
+from chronoblock.log import log
 from chronoblock.models import Chain
 
 __all__ = ["Settings", "settings", "CHAINS", "CHAIN_BY_NAME", "CHAIN_BY_ID"]
@@ -49,7 +49,7 @@ class _ChainCandidate(TypedDict):
     finality_blocks: int
 
 
-_is_deployed = "RAILWAY_ENVIRONMENT_NAME" in os.environ
+_IS_DEPLOYED = "RAILWAY_ENVIRONMENT_NAME" in os.environ
 
 _CHAIN_CANDIDATES: list[_ChainCandidate] = [
     {
@@ -57,7 +57,7 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "name": "ethereum",
         "field": "eth_rpc_url",
         "rpc_batch_size": 50,
-        "rpc_concurrency": 2 if _is_deployed else 5,
+        "rpc_concurrency": 2 if _IS_DEPLOYED else 5,
         "finality_blocks": 64,
     },
     {
@@ -65,7 +65,7 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "name": "base",
         "field": "base_rpc_url",
         "rpc_batch_size": 50,
-        "rpc_concurrency": 2 if _is_deployed else 10,
+        "rpc_concurrency": 2 if _IS_DEPLOYED else 10,
         "finality_blocks": 300,
     },
     {
@@ -73,7 +73,7 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "name": "ink",
         "field": "ink_rpc_url",
         "rpc_batch_size": 50,
-        "rpc_concurrency": 2 if _is_deployed else 10,
+        "rpc_concurrency": 2 if _IS_DEPLOYED else 10,
         "finality_blocks": 300,
     },
     {
@@ -81,7 +81,7 @@ _CHAIN_CANDIDATES: list[_ChainCandidate] = [
         "name": "plasma",
         "field": "plasma_rpc_url",
         "rpc_batch_size": 50,
-        "rpc_concurrency": 2 if _is_deployed else 10,
+        "rpc_concurrency": 2 if _IS_DEPLOYED else 10,
         "finality_blocks": 300,
     },
 ]
@@ -143,7 +143,7 @@ def _validate(settings: Settings, chains: list[Chain]) -> None:
 
     skipped = [candidate["name"] for candidate in _CHAIN_CANDIDATES if not getattr(settings, candidate["field"])]
     if skipped:
-        print(f"disabled chains (no RPC): {', '.join(skipped)}", file=sys.stderr)
+        log("info", "disabled chains (no RPC)", chains=skipped)
 
 
 # ── Module-level singletons ──────────────────────────────────────────

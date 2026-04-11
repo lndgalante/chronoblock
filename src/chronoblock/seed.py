@@ -28,10 +28,12 @@ async def download_seed_data() -> None:
 
     tmp_path = data_dir / "_seed.tar.gz"
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client, \
-                client.stream("GET", settings.seed_url, follow_redirects=True) as resp:
+        async with (
+            httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client,
+            client.stream("GET", settings.seed_url, follow_redirects=True) as resp,
+        ):
             resp.raise_for_status()
-            with open(tmp_path, "wb") as f:
+            with tmp_path.open("wb") as f:
                 async for chunk in resp.aiter_bytes(chunk_size=65536):
                     f.write(chunk)
 
