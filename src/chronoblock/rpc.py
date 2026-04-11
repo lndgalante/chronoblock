@@ -31,17 +31,21 @@ TIMEOUT = httpx.Timeout(30.0)
 RPC_RATE_LIMIT = 400  # calls/sec — margin under QuickNode's 500/sec cap
 
 _client: httpx.AsyncClient | None = None
+_client_shut_down = False
 
 
 def _get_client() -> httpx.AsyncClient:
     global _client
+    if _client_shut_down:
+        raise RuntimeError("HTTP client has been shut down")
     if _client is None or _client.is_closed:
         _client = httpx.AsyncClient(timeout=TIMEOUT)
     return _client
 
 
 async def close_client() -> None:
-    global _client
+    global _client, _client_shut_down
+    _client_shut_down = True
     if _client is not None and not _client.is_closed:
         await _client.aclose()
         _client = None
@@ -229,11 +233,11 @@ async def _send(chain: Chain, payload: list[dict[str, Any]], *, is_batch: Litera
 
 async def _send(chain: Chain, payload: dict[str, Any] | list[dict[str, Any]], *, is_batch: bool) -> Any:
     """Core fetch loop with retry and exponential backoff."""
-    client = _get_client()
     last_err: Exception | None = None
     token_count = len(payload) if is_batch else 1
 
     for attempt in range(MAX_RETRIES + 1):
+        client = _get_client()
         await _rate_limiter.acquire(token_count)
         try:
             try:

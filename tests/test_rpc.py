@@ -10,6 +10,7 @@ import httpx
 import pytest
 import respx
 
+import chronoblock.rpc as rpc_module
 from chronoblock.errors import RpcRateLimitError, RpcResponseError, RpcServerError, RpcTransportError
 from chronoblock.models import Block, Chain
 from chronoblock.rpc import close_client, fetch_block_timestamps, get_latest_block_number, is_retryable
@@ -43,8 +44,10 @@ def batch_response(from_block: int, to_block: int, missing: set[int] | None = No
 
 @pytest.fixture(autouse=True)
 async def cleanup_client():
+    rpc_module._client_shut_down = False
     yield
     await close_client()
+    rpc_module._client_shut_down = False
 
 
 class TestFetchBlockTimestamps:

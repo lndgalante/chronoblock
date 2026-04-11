@@ -249,14 +249,15 @@ def warm_caches(chains: list[Chain]) -> None:
 
 def close_all() -> None:
     global _data_dir_verified
-    for chain_id, store in _stores.items():
-        try:
-            store.connection.execute("PRAGMA optimize")
-        except Exception as err:
-            log("warn", "PRAGMA optimize failed during shutdown", chain_id=chain_id, error=str(err))
-        try:
-            store.connection.close()
-        except Exception as err:
-            log("warn", "connection close failed during shutdown", chain_id=chain_id, error=str(err))
-    _stores.clear()
-    _data_dir_verified = False
+    with _open_lock:
+        for chain_id, store in _stores.items():
+            try:
+                store.connection.execute("PRAGMA optimize")
+            except Exception as err:
+                log("warn", "PRAGMA optimize failed during shutdown", chain_id=chain_id, error=str(err))
+            try:
+                store.connection.close()
+            except Exception as err:
+                log("warn", "connection close failed during shutdown", chain_id=chain_id, error=str(err))
+        _stores.clear()
+        _data_dir_verified = False
