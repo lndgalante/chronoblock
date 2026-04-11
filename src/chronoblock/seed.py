@@ -33,9 +33,11 @@ async def download_seed_data() -> None:
             client.stream("GET", config.settings.seed_url, follow_redirects=True) as resp,
         ):
             resp.raise_for_status()
-            with tmp_path.open("wb") as f:
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    f.write(chunk)
+            chunks: list[bytes] = []
+            async for chunk in resp.aiter_bytes(chunk_size=65536):
+                chunks.append(chunk)
+
+        await asyncio.to_thread(tmp_path.write_bytes, b"".join(chunks))
 
         def _extract() -> int:
             with tarfile.open(tmp_path, mode="r:gz") as tar:

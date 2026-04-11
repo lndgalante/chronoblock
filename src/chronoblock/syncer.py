@@ -67,11 +67,13 @@ def get_sync_state(chain: Chain) -> SyncState:
 
 
 async def start_all() -> None:
-    for chain in config.CHAINS:
-        _sync_states[chain.id] = SyncState(
-            last_synced_block=await asyncio.to_thread(last_block, chain),
-            observed_block_time_ms=await asyncio.to_thread(observed_block_time_ms, chain),
-        )
+    last_blocks, block_times = await asyncio.gather(
+        asyncio.gather(*[asyncio.to_thread(last_block, ch) for ch in config.CHAINS]),
+        asyncio.gather(*[asyncio.to_thread(observed_block_time_ms, ch) for ch in config.CHAINS]),
+    )
+
+    for chain, stored, bt in zip(config.CHAINS, last_blocks, block_times, strict=True):
+        _sync_states[chain.id] = SyncState(last_synced_block=stored, observed_block_time_ms=bt)
         _tasks.append(asyncio.create_task(_sync_loop(chain), name=f"sync-{chain.name}"))
 
     _tasks.append(asyncio.create_task(_checkpoint_timer(), name="checkpoint-timer"))

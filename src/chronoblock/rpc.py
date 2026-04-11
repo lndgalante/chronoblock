@@ -106,12 +106,8 @@ async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -
 
     all_blocks: dict[int, int] = {}
     semaphore = asyncio.Semaphore(chain.rpc_concurrency)
-    had_failure = False
 
     async def _guarded_fetch(b_from: int, b_to: int) -> list[Block] | Exception:
-        nonlocal had_failure
-        if had_failure:
-            return []
         async with semaphore:
             try:
                 return await _fetch_batch(chain, b_from, b_to)
@@ -126,7 +122,6 @@ async def fetch_block_timestamps(chain: Chain, from_block: int, to_block: int) -
         if isinstance(result, RpcRateLimitError):
             raise result
         if isinstance(result, Exception):
-            had_failure = True
             log("warn", "batch failed", chain=chain.name, error=str(result))
         else:
             for block in result:

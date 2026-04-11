@@ -49,7 +49,7 @@ def _ensure_data_dir() -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
         test_path = data_dir / ".write_test"
         test_path.write_text("")
-        test_path.unlink()
+        test_path.unlink(missing_ok=True)
     except OSError as err:
         raise DataDirError(f'data directory "{config.settings.data_dir}" is not writable: {err}') from err
     _data_dir_verified = True
