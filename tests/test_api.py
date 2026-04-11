@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from chronoblock.api import INITIAL_SYNC_GRACE_SECS
 from chronoblock.config import CHAINS, settings
+from chronoblock.health import INITIAL_SYNC_GRACE_SECS
 from chronoblock.syncer import SyncState
 from tests.conftest import make_state
 

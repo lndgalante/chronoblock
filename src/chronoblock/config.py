@@ -150,13 +150,7 @@ def _validate(settings: Settings, chains: list[Chain]) -> None:
 
 settings = Settings()
 CHAINS = _build_chains(settings)
-try:
-    _validate(settings, CHAINS)
-except ConfigError as err:
-    print("fatal: config validation failed", file=sys.stderr)
-    for e in err.errors:
-        print(f"  - {e}", file=sys.stderr)
-    sys.exit(1)
+_validate(settings, CHAINS)
 
 CHAIN_BY_NAME: dict[str, Chain] = {c.name: c for c in CHAINS}
 CHAIN_BY_ID: dict[int, Chain] = {c.id: c for c in CHAINS}

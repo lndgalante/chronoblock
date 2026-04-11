@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import re
-import tarfile
 import traceback
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
-import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
@@ -31,6 +28,7 @@ from chronoblock.dependencies import (
     dep_is_healthy,
     dep_now,
 )
+from chronoblock.health import should_degrade_chain
 from chronoblock.log import log
 from chronoblock.middleware import (
     RequestIdMiddleware,
@@ -39,11 +37,11 @@ from chronoblock.middleware import (
 )
 from chronoblock.models import Chain
 from chronoblock.rpc import close_client
-from chronoblock.syncer import SyncState, start_all, stop_all
+from chronoblock.seed import download_seed_data
+from chronoblock.syncer import start_all, stop_all
 
-__all__ = ["create_app", "INITIAL_SYNC_GRACE_SECS"]
+__all__ = ["create_app"]
 
-INITIAL_SYNC_GRACE_SECS = 5 * 60
 BLOCK_PARAM_RE = re.compile(r"^\d+$")
 
 
@@ -109,58 +107,7 @@ def _resolve_chain(name: object = None, chain_id: object = None) -> Chain | None
     return None
 
 
-def _should_degrade_chain(sync: SyncState, now: float) -> str | None:
-    if sync.last_success_at is None:
-        if sync.last_error:
-            return sync.last_error
-        if now - sync.started_at > INITIAL_SYNC_GRACE_SECS:
-            return f"initial sync exceeded {INITIAL_SYNC_GRACE_SECS}s grace period"
-        return None
-
-    if sync.last_synced_block is None or sync.latest_chain_block is None:
-        return "sync state incomplete"
-
-    lag_blocks = sync.latest_chain_block - sync.last_synced_block
-    lag_secs = (lag_blocks * sync.observed_block_time_ms) / 1000
-    if lag_secs > settings.health_max_lag_secs:
-        return f"{lag_blocks} blocks behind (~{round(lag_secs)}s)"
-
-    return None
-
-
 # ── Lifespan ─────────────────────────────────────────────────────────
-
-
-async def _seed_data() -> None:
-    if not settings.seed_url:
-        return
-
-    data_dir = Path(settings.data_dir)
-    if any(data_dir.glob("*.db")):
-        log("info", "seed skipped: databases already exist")
-        return
-
-    log("info", "downloading seed data", url=settings.seed_url)
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    tmp_path = data_dir / "_seed.tar.gz"
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client, \
-                client.stream("GET", settings.seed_url, follow_redirects=True) as resp:
-            resp.raise_for_status()
-            with open(tmp_path, "wb") as f:
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    f.write(chunk)
-
-        def _extract() -> int:
-            with tarfile.open(tmp_path, mode="r:gz") as tar:
-                tar.extractall(path=data_dir, filter="data")
-            return len(list(data_dir.glob("*.db")))
-
-        count = await asyncio.to_thread(_extract)
-        log("info", f"seeded {count} databases from archive")
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
 
 async def _shutdown() -> None:
@@ -172,7 +119,7 @@ async def _shutdown() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     try:
-        await _seed_data()
+        await download_seed_data()
     except Exception as err:
         log("error", "seed failed, continuing without seed data", error=str(err))
     try:
@@ -235,7 +182,7 @@ def create_app() -> FastAPI:
             if not healthy:
                 degraded.append(f"{ch.name}: db unreadable")
                 continue
-            reason = _should_degrade_chain(fn_get_sync_state(ch), now)
+            reason = should_degrade_chain(fn_get_sync_state(ch), now)
             if reason:
                 degraded.append(f"{ch.name}: {reason}")
 
