@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -108,6 +109,195 @@ class TestFetchBlockTimestamps:
 
         with pytest.raises(asyncio.CancelledError):
             await run()
+
+
+class TestGetLatestBlockNumber:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_returns_block_number(self):
+        respx.post("http://example.test").mock(
+            return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "0xa"})
+        )
+        assert await get_latest_block_number(CHAIN) == 10
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_raises_on_non_string_result(self):
+        respx.post("http://example.test").mock(
+            return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": 123})
+        )
+        with pytest.raises(RpcResponseError, match="expected hex string"):
+            await get_latest_block_number(CHAIN)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_raises_on_invalid_hex(self):
+        respx.post("http://example.test").mock(
+            return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "not_hex"})
+        )
+        with pytest.raises(RpcResponseError, match="invalid hex"):
+            await get_latest_block_number(CHAIN)
+
+
+class TestSendErrorHandling:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_rate_limit_429(self):
+        respx.post("http://example.test").mock(
+            return_value=httpx.Response(429, headers={"Retry-After": "30"})
+        )
+        with patch("chronoblock.rpc.asyncio.sleep", new_callable=AsyncMock), pytest.raises(RpcRateLimitError):
+            await get_latest_block_number(CHAIN)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_server_error_500(self):
+        respx.post("http://example.test").mock(return_value=httpx.Response(502))
+        with patch("chronoblock.rpc.asyncio.sleep", new_callable=AsyncMock), pytest.raises(RpcServerError):
+            await get_latest_block_number(CHAIN)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_non_success_status(self):
+        respx.post("http://example.test").mock(return_value=httpx.Response(403, text="forbidden"))
+        with pytest.raises(RpcResponseError, match="HTTP 403"):
+            await get_latest_block_number(CHAIN)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_rpc_error_in_response(self):
+        respx.post("http://example.test").mock(
+            return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "error": {"message": "method not found"}})
+        )
+        with pytest.raises(RpcResponseError, match="RPC error"):
+            await get_latest_block_number(CHAIN)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_transport_timeout(self):
+        respx.post("http://example.test").mock(side_effect=httpx.TimeoutException("timed out"))
+        with (
+            patch("chronoblock.rpc.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(RpcTransportError, match="timeout"),
+        ):
+            await get_latest_block_number(CHAIN)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_transport_connect_error(self):
+        respx.post("http://example.test").mock(side_effect=httpx.ConnectError("refused"))
+        with (
+            patch("chronoblock.rpc.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(RpcTransportError, match="refused"),
+        ):
+            await get_latest_block_number(CHAIN)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_retries_on_transient_then_succeeds(self):
+        call_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(502)
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "0x5"})
+
+        respx.post("http://example.test").mock(side_effect=handler)
+        with patch("chronoblock.rpc.asyncio.sleep", new_callable=AsyncMock):
+            result = await get_latest_block_number(CHAIN)
+        assert result == 5
+        assert call_count == 2
+
+
+class TestFetchBatchErrorPaths:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_skips_rpc_errors_in_batch(self):
+        response = [
+            {"jsonrpc": "2.0", "id": 0, "result": {"number": "0x0", "timestamp": "0x3e8"}},
+            {"jsonrpc": "2.0", "id": 1, "error": {"message": "block not found"}},
+        ]
+        respx.post("http://example.test").mock(return_value=httpx.Response(200, json=response))
+
+        chain = Chain(id=1, name="ethereum", rpc="http://example.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=64)
+        blocks = await fetch_block_timestamps(chain, 0, 1)
+        assert blocks == [Block(0, 1000)]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_skips_malformed_blocks(self):
+        response = [
+            {"jsonrpc": "2.0", "id": 0, "result": {"number": "0x0", "timestamp": "0x3e8"}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"number": "invalid", "timestamp": "0x3e9"}},
+        ]
+        respx.post("http://example.test").mock(return_value=httpx.Response(200, json=response))
+
+        chain = Chain(id=1, name="ethereum", rpc="http://example.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=64)
+        blocks = await fetch_block_timestamps(chain, 0, 1)
+        assert blocks == [Block(0, 1000)]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_raises_rate_limit_when_majority_errors_are_rate_limited(self):
+        response = [
+            {"jsonrpc": "2.0", "id": 0, "error": {"message": "rate limit exceeded"}},
+            {"jsonrpc": "2.0", "id": 1, "error": {"message": "rate limit exceeded"}},
+            {"jsonrpc": "2.0", "id": 2, "result": {"number": "0x2", "timestamp": "0x3ea"}},
+        ]
+        respx.post("http://example.test").mock(return_value=httpx.Response(200, json=response))
+
+        chain = Chain(id=1, name="ethereum", rpc="http://example.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=64)
+        with pytest.raises(RpcRateLimitError):
+            await fetch_block_timestamps(chain, 0, 2)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_batch_response_not_list_returns_empty(self):
+        """Non-list batch response causes a failure that yields empty contiguous prefix."""
+        respx.post("http://example.test").mock(
+            return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "0x0"})
+        )
+        chain = Chain(id=1, name="ethereum", rpc="http://example.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=64)
+        blocks = await fetch_block_timestamps(chain, 0, 0)
+        assert blocks == []
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_rate_limit_error_propagated_from_batch(self):
+        """When a batch raises RpcRateLimitError, fetch_block_timestamps re-raises it."""
+        call_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            payload = json.loads(request.content)
+            from_block = int(payload[0]["params"][0], 16)
+            if from_block == 0:
+                return httpx.Response(200, json=batch_response(0, 1))
+            return httpx.Response(429)
+
+        respx.post("http://example.test").mock(side_effect=handler)
+
+        chain = Chain(id=1, name="ethereum", rpc="http://example.test", rpc_batch_size=2, rpc_concurrency=2, finality_blocks=64)
+        with patch("chronoblock.rpc.asyncio.sleep", new_callable=AsyncMock), pytest.raises(RpcRateLimitError):
+            await fetch_block_timestamps(chain, 0, 3)
+
+
+class TestBatchLengthMismatch:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_warns_on_length_mismatch(self):
+        """When batch response has fewer items than payload, log a warning but still return."""
+        response = [
+            {"jsonrpc": "2.0", "id": 0, "result": {"number": "0x0", "timestamp": "0x3e8"}},
+        ]
+        respx.post("http://example.test").mock(return_value=httpx.Response(200, json=response))
+
+        chain = Chain(id=1, name="ethereum", rpc="http://example.test", rpc_batch_size=10, rpc_concurrency=1, finality_blocks=64)
+        blocks = await fetch_block_timestamps(chain, 0, 1)
+        assert blocks == [Block(0, 1000)]
 
 
 class TestIsRetryable:

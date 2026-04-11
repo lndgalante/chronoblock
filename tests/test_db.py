@@ -109,6 +109,31 @@ class TestObservedBlockTimeMs:
         assert db.observed_block_time_ms(CHAIN) == 30_000.0
 
 
+class TestObservedBlockTimeMsNonContiguous:
+    def test_non_contiguous_returns_default(self):
+        # Insert blocks with a gap so newest - oldest != count - 1
+        blocks = [Block(0, 1000), Block(1, 1012), Block(3, 1036)]
+        db.insert_blocks(CHAIN, blocks)
+        assert db.observed_block_time_ms(CHAIN) == 1000.0
+
+
+class TestEnsureDataDir:
+    def test_raises_on_unwritable_dir(self, monkeypatch, tmp_path):
+        db.close_all()
+        readonly = tmp_path / "readonly"
+        readonly.mkdir()
+        readonly.chmod(0o444)
+        target = str(readonly / "subdir")
+        monkeypatch.setattr(db.config, "settings", SimpleNamespace(data_dir=target))
+        from chronoblock.errors import DataDirError
+
+        try:
+            with pytest.raises(DataDirError, match="not writable"):
+                db._ensure_data_dir()
+        finally:
+            readonly.chmod(0o755)
+
+
 class TestIsHealthy:
     def test_healthy_after_insert(self):
         db.insert_blocks(CHAIN, [Block(1, 1000)])

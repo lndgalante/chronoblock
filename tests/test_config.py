@@ -75,3 +75,9 @@ class TestValidate:
         with pytest.raises(ConfigError) as exc_info:
             validate_config(Settings(port=0, sync_chunk_size=0), [])
         assert len(exc_info.value.errors) >= 3
+
+    def test_logs_disabled_chains(self):
+        """When some chain candidates have no RPC URL, validate_config logs them."""
+        s = Settings(eth_rpc_url="http://eth.test", base_rpc_url=None, ink_rpc_url=None, plasma_rpc_url=None)
+        chains = [_chain(id=1, name="ethereum")]
+        validate_config(s, chains)

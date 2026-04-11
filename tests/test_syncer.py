@@ -53,6 +53,47 @@ class TestGetSyncState:
         assert state.syncs_performed == 0
 
 
+# ── start_all / stop_all ───────────────────────────────────────────
+
+
+class TestLifecycle:
+    @patch("chronoblock.syncer.config")
+    @patch("chronoblock.syncer.observed_block_time_ms", return_value=12_000.0)
+    @patch("chronoblock.syncer.last_block", return_value=42)
+    async def test_start_all_creates_tasks_and_states(self, mock_last, mock_bt, mock_config):
+        from chronoblock.syncer import _tasks, start_all, stop_all
+
+        mock_config.CHAINS = [CHAIN]
+        mock_config.settings = SimpleNamespace(sync_chunk_size=100)
+
+        await start_all()
+
+        assert CHAIN.id in _sync_states
+        state = _sync_states[CHAIN.id]
+        assert state.last_synced_block == 42
+        assert state.observed_block_time_ms == 12_000.0
+        # 1 sync task + 1 checkpoint task
+        assert len(_tasks) == 2
+
+        await stop_all()
+        assert len(_tasks) == 0
+
+    @patch("chronoblock.syncer.config")
+    @patch("chronoblock.syncer.observed_block_time_ms", return_value=1000.0)
+    @patch("chronoblock.syncer.last_block", return_value=None)
+    async def test_stop_all_cancels_tasks(self, mock_last, mock_bt, mock_config):
+        from chronoblock.syncer import _tasks, start_all, stop_all
+
+        mock_config.CHAINS = [CHAIN]
+        mock_config.settings = SimpleNamespace(sync_chunk_size=100)
+
+        await start_all()
+        assert len(_tasks) > 0
+
+        await stop_all()
+        assert len(_tasks) == 0
+
+
 # ── _sync_once ──────────────────────────────────────────────────────
 
 

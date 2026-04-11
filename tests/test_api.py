@@ -2,12 +2,77 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from chronoblock.config import CHAINS, settings
 from chronoblock.health import INITIAL_SYNC_GRACE_SECS
 from chronoblock.syncer import SyncState
 from tests.conftest import make_state
+
+# ── Lifespan tests ───────────────────────────────────────────────────
+
+
+class TestLifespan:
+    async def test_startup_and_shutdown(self):
+        from chronoblock.api import create_app, lifespan
+
+        app = create_app()
+
+        with (
+            patch("chronoblock.api.download_seed_data", new_callable=AsyncMock) as mock_seed,
+            patch("chronoblock.api.start_all", new_callable=AsyncMock) as mock_start,
+            patch("chronoblock.api.warm_caches") as mock_warm,
+            patch("chronoblock.api.stop_all", new_callable=AsyncMock) as mock_stop,
+            patch("chronoblock.api.close_all") as mock_close_db,
+            patch("chronoblock.api.close_client", new_callable=AsyncMock) as mock_close_rpc,
+        ):
+            async with lifespan(app):
+                mock_seed.assert_called_once()
+                mock_start.assert_called_once()
+                mock_warm.assert_called_once()
+
+            mock_stop.assert_called_once()
+            mock_close_db.assert_called_once()
+            mock_close_rpc.assert_called_once()
+
+    async def test_seed_failure_continues(self):
+        from chronoblock.api import create_app, lifespan
+
+        app = create_app()
+
+        with (
+            patch("chronoblock.api.download_seed_data", new_callable=AsyncMock, side_effect=RuntimeError("seed fail")),
+            patch("chronoblock.api.start_all", new_callable=AsyncMock) as mock_start,
+            patch("chronoblock.api.warm_caches"),
+            patch("chronoblock.api.stop_all", new_callable=AsyncMock),
+            patch("chronoblock.api.close_all"),
+            patch("chronoblock.api.close_client", new_callable=AsyncMock),
+        ):
+            async with lifespan(app):
+                mock_start.assert_called_once()
+
+    async def test_startup_failure_triggers_shutdown(self):
+        from chronoblock.api import create_app, lifespan
+
+        app = create_app()
+
+        with (
+            patch("chronoblock.api.download_seed_data", new_callable=AsyncMock),
+            patch("chronoblock.api.start_all", new_callable=AsyncMock, side_effect=RuntimeError("start fail")),
+            patch("chronoblock.api.stop_all", new_callable=AsyncMock) as mock_stop,
+            patch("chronoblock.api.close_all") as mock_close_db,
+            patch("chronoblock.api.close_client", new_callable=AsyncMock) as mock_close_rpc,
+        ):
+            with pytest.raises(RuntimeError, match="start fail"):
+                async with lifespan(app):
+                    pass
+
+            mock_stop.assert_called_once()
+            mock_close_db.assert_called_once()
+            mock_close_rpc.assert_called_once()
+
 
 # ── Happy-path tests ─────────────────────────────────────────────────
 
@@ -150,6 +215,19 @@ class TestStatus:
         assert "2023-11-14" in first["last_error_at"]
 
 
+class TestGlobalExceptionHandler:
+    def test_returns_500_on_unhandled_error(self, create_test_app):
+        def exploding_timestamps(_chain, _blocks):
+            raise RuntimeError("boom")
+
+        client = create_test_app(get_timestamps_fn=exploding_timestamps)
+        res = client.post("/v1/timestamps", json={"chain": "ethereum", "blocks": [1]})
+        assert res.status_code == 500
+        body = res.json()
+        assert body["error"] == "internal_error"
+        assert body["message"] == "internal server error"
+
+
 class TestMiddleware:
     def test_generates_request_id(self, create_test_app):
         client = create_test_app()
@@ -176,6 +254,12 @@ class TestMiddleware:
 
 
 class TestPostTimestampsValidation:
+    def test_missing_blocks_field(self, create_test_app):
+        client = create_test_app()
+        res = client.post("/v1/timestamps", json={"chain": "ethereum"})
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_blocks"
+
     @pytest.mark.parametrize(
         "name,body,expected_code",
         [
@@ -220,6 +304,12 @@ class TestGetTimestampsValidation:
     def test_rejects_mixed_block(self, create_test_app):
         client = create_test_app()
         res = client.get("/v1/timestamps/ethereum/123abc")
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_block_number"
+
+    def test_rejects_block_exceeding_max_safe_integer(self, create_test_app):
+        client = create_test_app()
+        res = client.get(f"/v1/timestamps/ethereum/{2**53}")
         assert res.status_code == 400
         assert res.json()["error"] == "invalid_block_number"
 
