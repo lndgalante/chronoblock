@@ -56,11 +56,12 @@ def _ensure_data_dir() -> None:
 
 
 class _ChainDB:
-    __slots__ = ("connection", "file_path", "cached_count", "cached_count_at", "_get_many_sql")
+    __slots__ = ("connection", "file_path", "lock", "cached_count", "cached_count_at", "_get_many_sql")
 
     def __init__(self, connection: sqlite3.Connection, file_path: Path) -> None:
         self.connection = connection
         self.file_path = file_path
+        self.lock = threading.Lock()
         self.cached_count = 0
         self.cached_count_at = 0.0
         self._get_many_sql: dict[int, str] = {}
@@ -125,29 +126,31 @@ def _open(chain: Chain) -> _ChainDB:
 def get_timestamps(chain: Chain, block_numbers: list[int]) -> list[int | None]:
     store = _open(chain)
 
-    if len(block_numbers) <= 20:
-        results: list[int | None] = []
-        for bn in block_numbers:
-            row = store.connection.execute("SELECT timestamp FROM blocks WHERE block_number = ?", (bn,)).fetchone()
-            results.append(row[0] if row else None)
-        return results
+    with store.lock:
+        if len(block_numbers) <= 20:
+            results: list[int | None] = []
+            for bn in block_numbers:
+                row = store.connection.execute("SELECT timestamp FROM blocks WHERE block_number = ?", (bn,)).fetchone()
+                results.append(row[0] if row else None)
+            return results
 
-    lookup: dict[int, int] = {}
-    chunk_size = 500
+        lookup: dict[int, int] = {}
+        chunk_size = 500
 
-    for i in range(0, len(block_numbers), chunk_size):
-        chunk = block_numbers[i : i + chunk_size]
-        sql = store.get_many_sql(len(chunk))
-        rows = store.connection.execute(sql, chunk).fetchall()
-        for block_number, timestamp in rows:
-            lookup[block_number] = timestamp
+        for i in range(0, len(block_numbers), chunk_size):
+            chunk = block_numbers[i : i + chunk_size]
+            sql = store.get_many_sql(len(chunk))
+            rows = store.connection.execute(sql, chunk).fetchall()
+            for block_number, timestamp in rows:
+                lookup[block_number] = timestamp
 
     return [lookup.get(bn) for bn in block_numbers]
 
 
 def last_block(chain: Chain) -> int | None:
     store = _open(chain)
-    row = store.connection.execute("SELECT MAX(block_number) FROM blocks").fetchone()
+    with store.lock:
+        row = store.connection.execute("SELECT MAX(block_number) FROM blocks").fetchone()
     return row[0] if row and row[0] is not None else None
 
 
@@ -158,7 +161,8 @@ def block_count(chain: Chain) -> int:
     if now - store.cached_count_at < COUNT_CACHE_TTL:
         return store.cached_count
 
-    row = store.connection.execute("SELECT COUNT(*) FROM blocks").fetchone()
+    with store.lock:
+        row = store.connection.execute("SELECT COUNT(*) FROM blocks").fetchone()
     count = row[0] if row else 0
     store.cached_count = count
     store.cached_count_at = now
@@ -167,10 +171,11 @@ def block_count(chain: Chain) -> int:
 
 def observed_block_time_ms(chain: Chain) -> float:
     store = _open(chain)
-    rows = store.connection.execute(
-        "SELECT block_number, timestamp FROM blocks ORDER BY block_number DESC LIMIT ?",
-        (BLOCK_TIME_SAMPLE_SIZE,),
-    ).fetchall()
+    with store.lock:
+        rows = store.connection.execute(
+            "SELECT block_number, timestamp FROM blocks ORDER BY block_number DESC LIMIT ?",
+            (BLOCK_TIME_SAMPLE_SIZE,),
+        ).fetchall()
 
     if len(rows) < 2:
         return DEFAULT_BLOCK_TIME_MS
@@ -197,11 +202,12 @@ def observed_block_time_ms(chain: Chain) -> float:
 
 def insert_blocks(chain: Chain, blocks: list[Block]) -> None:
     store = _open(chain)
-    store.connection.executemany(
-        "INSERT OR IGNORE INTO blocks (block_number, timestamp) VALUES (?, ?)",
-        [(b.number, b.timestamp) for b in blocks],
-    )
-    store.connection.commit()
+    with store.lock:
+        store.connection.executemany(
+            "INSERT OR IGNORE INTO blocks (block_number, timestamp) VALUES (?, ?)",
+            [(b.number, b.timestamp) for b in blocks],
+        )
+        store.connection.commit()
 
 
 # ── Maintenance ──────────────────────────────────────────────────────
@@ -211,11 +217,12 @@ def checkpoint_all() -> None:
     with _open_lock:
         stores = list(_stores.items())
     for chain_id, store in stores:
-        for pragma in ("PRAGMA optimize", "PRAGMA wal_checkpoint(PASSIVE)", "PRAGMA wal_checkpoint(TRUNCATE)"):
-            try:
-                store.connection.execute(pragma)
-            except sqlite3.Error as err:
-                log("warn", "checkpoint pragma failed", chain_id=chain_id, pragma=pragma, error=str(err))
+        with store.lock:
+            for pragma in ("PRAGMA optimize", "PRAGMA wal_checkpoint(PASSIVE)", "PRAGMA wal_checkpoint(TRUNCATE)"):
+                try:
+                    store.connection.execute(pragma)
+                except sqlite3.Error as err:
+                    log("warn", "checkpoint pragma failed", chain_id=chain_id, pragma=pragma, error=str(err))
 
 
 def is_healthy(chain: Chain) -> bool:
@@ -223,7 +230,8 @@ def is_healthy(chain: Chain) -> bool:
         store = _open(chain)
         if not store.file_path.exists():
             return False
-        store.connection.execute("SELECT COUNT(*) FROM blocks").fetchone()
+        with store.lock:
+            store.connection.execute("SELECT COUNT(*) FROM blocks").fetchone()
         return True
     except (sqlite3.Error, OSError) as err:
         log("warn", "health check failed", chain=chain.name, error=str(err))
@@ -243,8 +251,9 @@ def warm_caches(chains: list[Chain]) -> None:
     for chain in chains:
         store = _open(chain)
         start = time.monotonic()
-        # SUM forces a full table scan without loading rows into Python.
-        store.connection.execute("SELECT SUM(timestamp) FROM blocks").fetchone()
+        with store.lock:
+            # SUM forces a full table scan without loading rows into Python.
+            store.connection.execute("SELECT SUM(timestamp) FROM blocks").fetchone()
         elapsed_ms = (time.monotonic() - start) * 1_000
         log("info", "cache warmed", chain=chain.name, duration_ms=round(elapsed_ms))
 
@@ -253,13 +262,14 @@ def close_all() -> None:
     global _data_dir_verified
     with _open_lock:
         for chain_id, store in _stores.items():
-            try:
-                store.connection.execute("PRAGMA optimize")
-            except Exception as err:
-                log("warn", "PRAGMA optimize failed during shutdown", chain_id=chain_id, error=str(err))
-            try:
-                store.connection.close()
-            except Exception as err:
-                log("warn", "connection close failed during shutdown", chain_id=chain_id, error=str(err))
+            with store.lock:
+                try:
+                    store.connection.execute("PRAGMA optimize")
+                except Exception as err:
+                    log("warn", "PRAGMA optimize failed during shutdown", chain_id=chain_id, error=str(err))
+                try:
+                    store.connection.close()
+                except Exception as err:
+                    log("warn", "connection close failed during shutdown", chain_id=chain_id, error=str(err))
         _stores.clear()
         _data_dir_verified = False
